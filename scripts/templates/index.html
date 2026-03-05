@@ -541,11 +541,18 @@ function drawTileToOffscreen(tx, ty, pngB64, siteId) {
     const px = tx * imageSize;
     const py = ty * imageSize;
     offCtx.drawImage(img, px, py, imageSize, imageSize);
-    // Draw site-colored border
+    // Draw site-colored dot in top-left corner
     const color = getSiteColor(siteId);
-    offCtx.strokeStyle = color;
-    offCtx.lineWidth = 2;
-    offCtx.strokeRect(px + 1, py + 1, imageSize - 2, imageSize - 2);
+    const dotR = Math.max(4, Math.round(imageSize * 0.04));
+    const dotX = px + dotR + 3;
+    const dotY = py + dotR + 3;
+    offCtx.fillStyle = color;
+    offCtx.beginPath();
+    offCtx.arc(dotX, dotY, dotR, 0, Math.PI * 2);
+    offCtx.fill();
+    offCtx.strokeStyle = '#000';
+    offCtx.lineWidth = 1;
+    offCtx.stroke();
     drawnTiles[tx + ',' + ty] = siteId;
     renderFractalView();
   };
