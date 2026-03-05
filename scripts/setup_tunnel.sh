@@ -23,9 +23,13 @@ JOB_DIR="${PW_PARENT_JOB_DIR%/}"
 RAY_PORT=6379
 
 # Fixed worker ports for bidirectional tunnel
-# These must match what start_ray_workers.sh uses with --node-manager-port / --object-manager-port
+# These must match what start_ray_workers.sh uses
+WORKER_TUNNEL_IP=127.0.0.2
 WORKER_RAYLET_PORT=20380
 WORKER_OBJ_PORT=20381
+# Worker process ports: constrained range for tunneling (need ~1 per CPU on remote node)
+WORKER_MIN_PORT=20400
+WORKER_MAX_PORT=20420
 
 # Find pw CLI
 PW_CMD=""
@@ -90,22 +94,33 @@ echo "${TUNNEL_RAY_PORT}" > "${JOB_DIR}/TUNNEL_RAY_PORT"
 #   Forward (on-prem can reach cloud worker):
 #     onprem:WORKER_RAYLET_PORT -> cloud:WORKER_RAYLET_PORT  (raylet heartbeats)
 #     onprem:WORKER_OBJ_PORT   -> cloud:WORKER_OBJ_PORT     (object transfer)
+#     onprem:20400-20420        -> cloud:20400-20420          (worker process ports)
 echo "Establishing bidirectional SSH tunnel..."
 echo "  Reverse: cloud:${TUNNEL_PORT} -> onprem:${DASHBOARD_PORT} (dashboard)"
 echo "  Reverse: cloud:${TUNNEL_RAY_PORT} -> onprem:${RAY_PORT} (Ray GCS)"
 echo "  Forward: onprem:${WORKER_RAYLET_PORT} -> cloud:${WORKER_RAYLET_PORT} (raylet)"
 echo "  Forward: onprem:${WORKER_OBJ_PORT} -> cloud:${WORKER_OBJ_PORT} (object mgr)"
-ssh -i ~/.ssh/pwcli \
-    -o StrictHostKeyChecking=no \
-    -o UserKnownHostsFile=/dev/null \
-    -o ExitOnForwardFailure=yes \
-    -o ServerAliveInterval=15 \
-    -o ProxyCommand="pw ssh --proxy-command %h" \
-    -R "${TUNNEL_PORT}:localhost:${DASHBOARD_PORT}" \
-    -R "${TUNNEL_RAY_PORT}:localhost:${RAY_PORT}" \
-    -L "127.0.0.2:${WORKER_RAYLET_PORT}:localhost:${WORKER_RAYLET_PORT}" \
-    -L "127.0.0.2:${WORKER_OBJ_PORT}:localhost:${WORKER_OBJ_PORT}" \
-    -N "${PW_USER}@${SSH_TARGET}" &
+echo "  Forward: onprem:${WORKER_MIN_PORT}-${WORKER_MAX_PORT} -> cloud (worker procs)"
+
+# Build SSH command with all port forwards
+SSH_ARGS=(
+    -i ~/.ssh/pwcli
+    -o StrictHostKeyChecking=no
+    -o UserKnownHostsFile=/dev/null
+    -o ExitOnForwardFailure=yes
+    -o ServerAliveInterval=15
+    -o "ProxyCommand=pw ssh --proxy-command %h"
+    -R "${TUNNEL_PORT}:localhost:${DASHBOARD_PORT}"
+    -R "${TUNNEL_RAY_PORT}:localhost:${RAY_PORT}"
+    -L "${WORKER_TUNNEL_IP}:${WORKER_RAYLET_PORT}:localhost:${WORKER_RAYLET_PORT}"
+    -L "${WORKER_TUNNEL_IP}:${WORKER_OBJ_PORT}:localhost:${WORKER_OBJ_PORT}"
+)
+# Add forward tunnels for worker process ports (one per port in range)
+for port in $(seq ${WORKER_MIN_PORT} ${WORKER_MAX_PORT}); do
+    SSH_ARGS+=(-L "${WORKER_TUNNEL_IP}:${port}:localhost:${port}")
+done
+
+ssh "${SSH_ARGS[@]}" -N "${PW_USER}@${SSH_TARGET}" &
 TUNNEL_PID=$!
 sleep 3
 
@@ -116,6 +131,7 @@ if kill -0 ${TUNNEL_PID} 2>/dev/null; then
     echo "  Reverse: Cloud localhost:${TUNNEL_RAY_PORT} -> On-prem localhost:${RAY_PORT}"
     echo "  Forward: On-prem localhost:${WORKER_RAYLET_PORT} -> Cloud localhost:${WORKER_RAYLET_PORT}"
     echo "  Forward: On-prem localhost:${WORKER_OBJ_PORT} -> Cloud localhost:${WORKER_OBJ_PORT}"
+    echo "  Forward: On-prem ${WORKER_MIN_PORT}-${WORKER_MAX_PORT} -> Cloud (worker procs)"
     echo "=========================================="
 
     # Verify tunnel by testing connectivity from cloud side
