@@ -81,8 +81,13 @@ echo "Ray head IP: ${HEAD_IP}"
 echo "Starting Ray head node..."
 ray start --head \
     --port=${RAY_PORT} \
+    --node-ip-address=${HEAD_IP} \
     --dashboard-host=0.0.0.0 \
     --dashboard-port=8265
+
+# Verify Ray GCS is listening
+echo "Checking Ray GCS port binding..."
+ss -tlnp 2>/dev/null | grep ":${RAY_PORT}" || netstat -tlnp 2>/dev/null | grep ":${RAY_PORT}" || echo "  (port check tools unavailable)"
 
 echo "Ray head started on ${HEAD_IP}:${RAY_PORT}"
 ray status
