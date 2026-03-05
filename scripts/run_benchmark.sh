@@ -29,7 +29,25 @@ else
     PYTHON_CMD="python3"
 fi
 
-# Verify Ray is running
+# Wait for workers to join the cluster (at least 2 nodes = head + worker)
+echo "Waiting for Ray workers to join..."
+attempt=1
+MAX_ATTEMPTS=90
+while [ ${attempt} -le ${MAX_ATTEMPTS} ]; do
+    NODE_COUNT=$(ray status 2>/dev/null | grep -c "node_" || echo "0")
+    echo "[${attempt}/${MAX_ATTEMPTS}] Ray nodes: ${NODE_COUNT}"
+    if [ "${NODE_COUNT}" -ge 2 ]; then
+        echo "Workers joined! ${NODE_COUNT} nodes in cluster."
+        break
+    fi
+    sleep 5
+    ((attempt++))
+done
+
+if [ ${attempt} -gt ${MAX_ATTEMPTS} ]; then
+    echo "[WARN] Timeout waiting for workers. Running with available nodes."
+fi
+
 ray status
 
 # Auto-detect cluster name for on-prem (site-1)

@@ -206,7 +206,7 @@ jobs:
   # BENCHMARK — Run distributed benchmark across both sites
   # =============================================================================
   run_benchmark:
-    needs: [start_ray_workers, wait_for_ray]
+    needs: [wait_for_tunnel, wait_for_ray]
     ssh:
       remoteHost: ${{ inputs.onprem_resource.ip }}
     steps:
