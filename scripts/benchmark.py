@@ -2,11 +2,15 @@
 """Ray distributed benchmark — runs tasks across a multi-site Ray cluster."""
 
 import argparse
+import base64
 import json
 import os
 import socket
+import struct
 import time
 import urllib.request
+import zlib
+from math import log2
 
 import numpy as np
 import ray
@@ -120,6 +124,174 @@ def scaling_task(task_id, ray_head_ip):
     }
 
 
+@ray.remote(scheduling_strategy="SPREAD")
+def fractal_tile_task(tile_x, tile_y, grid_size, img_w, img_h, palette_name, ray_head_ip):
+    """Render a Mandelbrot tile. Self-contained — no external dependencies."""
+    import base64
+    import socket
+    import struct
+    import time
+    import zlib
+    from math import log2
+
+    # --- Mandelbrot parameters ---
+    REGION = (-2.5, -1.25, 1.0, 1.25)
+    MAX_ITER = 256
+    PALETTES = {
+        "electric": [(0,0,0),(0,7,100),(32,107,203),(237,255,255),(255,170,0),(0,2,0)],
+        "fire": [(0,0,0),(25,7,26),(109,1,31),(189,21,2),(238,113,0),(255,255,0)],
+        "ocean": [(0,0,0),(0,20,50),(0,72,120),(0,150,180),(72,210,210),(200,255,255)],
+        "cosmic": [(0,0,0),(20,0,40),(80,0,120),(160,30,200),(220,100,255),(255,220,255)],
+    }
+
+    def lerp_color(palette, t):
+        n = len(palette) - 1
+        idx = t * n
+        i = int(idx)
+        if i >= n:
+            return palette[-1]
+        f = idx - i
+        c0, c1 = palette[i], palette[i + 1]
+        return (int(c0[0]+(c1[0]-c0[0])*f), int(c0[1]+(c1[1]-c0[1])*f), int(c0[2]+(c1[2]-c0[2])*f))
+
+    start = time.time()
+    palette = PALETTES.get(palette_name, PALETTES["electric"])
+    xmin, ymin, xmax, ymax = REGION
+    tile_w = (xmax - xmin) / grid_size
+    tile_h = (ymax - ymin) / grid_size
+    x0 = xmin + tile_x * tile_w
+    y0 = ymin + tile_y * tile_h
+
+    pixels = []
+    for py in range(img_h):
+        for px in range(img_w):
+            cx = x0 + (px / img_w) * tile_w
+            cy = y0 + (py / img_h) * tile_h
+            zx, zy = 0.0, 0.0
+            iteration = 0
+            while zx * zx + zy * zy <= 4.0 and iteration < MAX_ITER:
+                zx, zy = zx * zx - zy * zy + cx, 2.0 * zx * zy + cy
+                iteration += 1
+            if iteration == MAX_ITER:
+                pixels.append((0, 0, 0))
+            else:
+                smooth = iteration + 1 - log2(log2(max(zx * zx + zy * zy, 1.001)))
+                t = (smooth / MAX_ITER) % 1.0
+                pixels.append(lerp_color(palette, t))
+
+    # Pure-Python PNG encoder
+    def make_chunk(chunk_type, data):
+        c = chunk_type + data
+        return struct.pack(">I", len(data)) + c + struct.pack(">I", zlib.crc32(c) & 0xFFFFFFFF)
+
+    header = b"\x89PNG\r\n\x1a\n"
+    ihdr = make_chunk(b"IHDR", struct.pack(">IIBBBBB", img_w, img_h, 8, 2, 0, 0, 0))
+    raw = b""
+    for y in range(img_h):
+        raw += b"\x00"
+        for x in range(img_w):
+            r, g, b = pixels[y * img_w + x]
+            raw += struct.pack("BBB", r, g, b)
+    idat = make_chunk(b"IDAT", zlib.compress(raw, 9))
+    iend = make_chunk(b"IEND", b"")
+    png_bytes = header + ihdr + idat + iend
+    png_b64 = base64.b64encode(png_bytes).decode("ascii")
+
+    duration_ms = (time.time() - start) * 1000
+
+    # Site detection (inline to keep task self-contained)
+    try:
+        node_ip = ray.util.get_node_ip_address()
+    except Exception:
+        node_ip = socket.gethostbyname(socket.gethostname())
+    if node_ip == ray_head_ip:
+        site_id = "site-1"
+    elif node_ip.startswith("127.0.0."):
+        site_id = f"site-{int(node_ip.split('.')[-1])}"
+    else:
+        site_id = "site-2"
+
+    return {
+        "tile_x": tile_x,
+        "tile_y": tile_y,
+        "grid_size": grid_size,
+        "width": img_w,
+        "height": img_h,
+        "render_time_ms": round(duration_ms, 1),
+        "site_id": site_id,
+        "node_ip": node_ip,
+        "palette": palette_name,
+        "png_b64": png_b64,
+    }
+
+
+def run_fractal_mode(args, dashboard_url, ray_head_ip, alive_nodes, site_metadata):
+    """Run fractal tile rendering across the Ray cluster."""
+    grid_size = args.grid_size
+    image_size = args.image_size
+    palette = args.palette
+    total_tiles = grid_size * grid_size
+
+    print(f"\nFractal Rendering: {grid_size}x{grid_size} grid, {image_size}px tiles, {palette} palette")
+    print(f"Total tiles: {total_tiles}")
+
+    # Configure dashboard for fractal mode
+    post_json(f"{dashboard_url}/api/config", {
+        "workload_type": "fractal",
+        "grid_size": grid_size,
+        "image_size": image_size,
+        "total_tiles": total_tiles,
+        "ray_head_ip": ray_head_ip,
+        "num_nodes": len(alive_nodes),
+        "total_cpus": int(sum(n["Resources"].get("CPU", 0) for n in alive_nodes)),
+    })
+
+    # Start rendering phase
+    post_json(f"{dashboard_url}/api/phase", {"phase": "rendering"})
+
+    # Submit all tile tasks
+    print(f"\nSubmitting {total_tiles} tile tasks...")
+    t_start = time.time()
+    futures = []
+    for ty in range(grid_size):
+        for tx in range(grid_size):
+            f = fractal_tile_task.remote(tx, ty, grid_size, image_size, image_size, palette, ray_head_ip)
+            futures.append(f)
+
+    # Collect results and POST each tile to dashboard
+    print(f"Collecting results...")
+    completed = 0
+    for future in futures:
+        try:
+            result = ray.get(future, timeout=300)
+            # Enrich with cluster metadata
+            sid = result.get("site_id", "")
+            if sid in site_metadata:
+                meta = site_metadata[sid]
+                if meta.get("cluster_name"):
+                    result["cluster_name"] = meta["cluster_name"]
+                if meta.get("scheduler_type"):
+                    result["scheduler_type"] = meta["scheduler_type"]
+            post_json(f"{dashboard_url}/api/tile", result)
+            completed += 1
+            if completed % 50 == 0 or completed == total_tiles:
+                elapsed = time.time() - t_start
+                rate = completed / elapsed if elapsed > 0 else 0
+                print(f"  {completed}/{total_tiles} tiles ({rate:.1f} tiles/sec)")
+        except Exception as e:
+            print(f"  Warning: Tile task failed: {e}")
+
+    t_duration = time.time() - t_start
+    rate = completed / t_duration if t_duration > 0 else 0
+
+    print(f"\n{'='*60}")
+    print(f"Fractal Rendering Complete")
+    print(f"{'='*60}")
+    print(f"  {completed}/{total_tiles} tiles in {t_duration:.1f}s ({rate:.1f} tiles/sec)")
+
+    post_json(f"{dashboard_url}/api/phase", {"phase": "complete"})
+
+
 def fetch_site_metadata(dashboard_url):
     """Fetch site metadata (cluster_name, scheduler_type) from dashboard state."""
     try:
@@ -170,8 +342,12 @@ def main():
     parser = argparse.ArgumentParser(description="Ray distributed benchmark")
     parser.add_argument("--dashboard-url", required=True)
     parser.add_argument("--ray-head-ip", required=True)
+    parser.add_argument("--workload-type", default="benchmark", choices=["benchmark", "fractal"])
     parser.add_argument("--num-tasks", type=int, default=500)
     parser.add_argument("--matrix-size", type=int, default=500)
+    parser.add_argument("--grid-size", type=int, default=16)
+    parser.add_argument("--image-size", type=int, default=256)
+    parser.add_argument("--palette", default="electric")
     parser.add_argument("--onprem-cluster-name", default="")
     parser.add_argument("--onprem-scheduler-type", default="ssh")
     args = parser.parse_args()
@@ -194,14 +370,6 @@ def main():
         cpus = n["Resources"].get("CPU", 0)
         print(f"  Node {ip}: {cpus} CPUs")
 
-    # Configure dashboard
-    post_json(f"{dashboard_url}/api/config", {
-        "total_tasks": num_tasks + 20 + num_tasks,  # throughput + compute + scaling
-        "ray_head_ip": ray_head_ip,
-        "num_nodes": len(alive_nodes),
-        "total_cpus": int(total_cpus),
-    })
-
     # Register head node as site-1 worker
     post_json(f"{dashboard_url}/api/worker", {
         "site_id": "site-1",
@@ -223,6 +391,21 @@ def main():
         "scheduler_type": args.onprem_scheduler_type,
     }
     print(f"\nSite metadata: {json.dumps(site_metadata, indent=2)}")
+
+    # Branch on workload type
+    if args.workload_type == "fractal":
+        run_fractal_mode(args, dashboard_url, ray_head_ip, alive_nodes, site_metadata)
+        ray.shutdown()
+        return
+
+    # Configure dashboard for benchmark mode
+    post_json(f"{dashboard_url}/api/config", {
+        "workload_type": "benchmark",
+        "total_tasks": num_tasks + 20 + num_tasks,  # throughput + compute + scaling
+        "ray_head_ip": ray_head_ip,
+        "num_nodes": len(alive_nodes),
+        "total_cpus": int(total_cpus),
+    })
 
     overall_start = time.time()
 

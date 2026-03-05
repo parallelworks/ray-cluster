@@ -221,6 +221,37 @@
     animation: pulse 1.5s infinite;
   }
   @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+  /* Fractal view */
+  .fractal-area {
+    display: none;
+    flex-direction: column;
+    padding: 1.5rem 2rem;
+    overflow: hidden;
+  }
+  .fractal-area .chart-label { margin-bottom: 0.5rem; }
+  .fractal-canvas-wrap {
+    flex: 1;
+    position: relative;
+    min-height: 0;
+  }
+  .fractal-canvas-wrap canvas {
+    width: 100%;
+    height: 100%;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    cursor: grab;
+  }
+  .fractal-canvas-wrap canvas:active { cursor: grabbing; }
+  .zoom-hint {
+    position: absolute;
+    bottom: 12px;
+    right: 12px;
+    font-size: 0.7rem;
+    color: var(--dim);
+    background: rgba(10,14,23,0.8);
+    padding: 0.3rem 0.6rem;
+    border-radius: 4px;
+  }
 </style>
 </head>
 <body>
@@ -228,7 +259,7 @@
   <h1><span>ACTIVATE</span> Ray Cluster Dashboard</h1>
   <div class="header-right">
     <div style="display:flex; gap:0.4rem; margin-right:1rem;">
-      <button class="tab-btn active" id="tab-benchmark" onclick="switchTab('benchmark')">Benchmark</button>
+      <button class="tab-btn active" id="tab-workload" onclick="switchTab('workload')">Benchmark</button>
       <button class="tab-btn" id="tab-ray" onclick="switchTab('ray')">Ray Dashboard</button>
     </div>
     <div class="legend" id="header-legend">
@@ -248,6 +279,8 @@
   <div class="ray-iframe-wrap" id="ray-iframe-wrap">
     <iframe id="ray-iframe" src="about:blank"></iframe>
   </div>
+
+  <!-- Benchmark charts view -->
   <div class="charts-area" id="benchmark-view">
     <div class="chart-container topology">
       <div class="chart-label">Cluster Topology</div>
@@ -269,10 +302,19 @@
     </div>
   </div>
 
+  <!-- Fractal canvas view -->
+  <div class="fractal-area" id="fractal-view">
+    <div class="chart-label">Fractal Rendering &mdash; <span id="fractal-grid-label">0x0</span> grid, <span id="fractal-tile-label">0</span>px tiles</div>
+    <div class="fractal-canvas-wrap">
+      <canvas id="fractal-canvas"></canvas>
+      <div class="zoom-hint">Scroll to zoom &middot; Drag to pan &middot; Double-click to reset</div>
+    </div>
+  </div>
+
   <div class="sidebar">
     <!-- Progress -->
     <div class="card">
-      <div class="card-title">Progress</div>
+      <div class="card-title" id="progress-title">Progress</div>
       <div class="progress-bar-outer">
         <div id="progress-bar" class="progress-bar-inner" style="width:0%"></div>
         <div id="progress-label" class="progress-label">0 / 0 tasks</div>
@@ -289,7 +331,7 @@
         </div>
         <div class="stat-item">
           <div class="stat-value" id="stat-tasks">0</div>
-          <div class="stat-label">Tasks Done</div>
+          <div class="stat-label" id="stat-tasks-label">Tasks Done</div>
         </div>
         <div class="stat-item">
           <div class="stat-value" id="stat-elapsed">0s</div>
@@ -297,7 +339,7 @@
         </div>
         <div class="stat-item">
           <div class="stat-value" id="stat-tps">--</div>
-          <div class="stat-label">Tasks/sec</div>
+          <div class="stat-label" id="stat-tps-label">Tasks/sec</div>
         </div>
       </div>
     </div>
@@ -316,14 +358,14 @@
       </div>
     </div>
 
-    <!-- Benchmark Results -->
+    <!-- Benchmark Results (hidden in fractal mode) -->
     <div class="card" id="results-card" style="display:none">
       <div class="card-title">Benchmark Results</div>
       <div id="results-container"></div>
     </div>
 
-    <!-- Throughput Mini -->
-    <div class="card">
+    <!-- Throughput Mini (hidden in fractal mode) -->
+    <div class="card" id="throughput-mini-card">
       <div class="card-title">Throughput (tasks/sec)</div>
       <div class="throughput-chart">
         <canvas id="throughput-canvas"></canvas>
@@ -333,30 +375,70 @@
 </div>
 
 <script>
+// =====================================================================
+// Workload mode
+// =====================================================================
+let workloadType = 'benchmark'; // 'benchmark' or 'fractal'
+let gridSize = 0;
+let imageSize = 0;
+
+function switchWorkloadView(type) {
+  workloadType = type;
+  const benchView = document.getElementById('benchmark-view');
+  const fractalView = document.getElementById('fractal-view');
+  const tabBtn = document.getElementById('tab-workload');
+  const resultsCard = document.getElementById('results-card');
+  const throughputMini = document.getElementById('throughput-mini-card');
+
+  if (type === 'fractal') {
+    benchView.style.display = 'none';
+    fractalView.style.display = 'flex';
+    tabBtn.textContent = 'Fractal';
+    resultsCard.style.display = 'none';
+    throughputMini.style.display = 'none';
+    document.getElementById('stat-tasks-label').textContent = 'Tiles Done';
+    document.getElementById('stat-tps-label').textContent = 'Tiles/sec';
+    document.getElementById('fractal-grid-label').textContent = gridSize + 'x' + gridSize;
+    document.getElementById('fractal-tile-label').textContent = imageSize;
+    initOffscreen();
+    resizeFractalCanvas();
+    renderFractalView();
+  } else {
+    benchView.style.display = '';
+    fractalView.style.display = 'none';
+    tabBtn.textContent = 'Benchmark';
+    throughputMini.style.display = '';
+    document.getElementById('stat-tasks-label').textContent = 'Tasks Done';
+    document.getElementById('stat-tps-label').textContent = 'Tasks/sec';
+    drawAll();
+  }
+}
+
 function switchTab(tab) {
   const benchView = document.getElementById('benchmark-view');
+  const fractalView = document.getElementById('fractal-view');
   const sidebar = document.querySelector('.sidebar');
   const rayWrap = document.getElementById('ray-iframe-wrap');
   const rayIframe = document.getElementById('ray-iframe');
-  const btnBench = document.getElementById('tab-benchmark');
+  const btnWorkload = document.getElementById('tab-workload');
   const btnRay = document.getElementById('tab-ray');
 
   if (tab === 'ray') {
     benchView.style.display = 'none';
+    fractalView.style.display = 'none';
     sidebar.style.display = 'none';
     rayWrap.style.display = 'block';
     const basePath = location.pathname.replace(/\/$/, '');
     rayIframe.src = basePath + '/ray/';
     btnRay.classList.add('active');
-    btnBench.classList.remove('active');
+    btnWorkload.classList.remove('active');
   } else {
-    benchView.style.display = '';
     sidebar.style.display = '';
     rayWrap.style.display = 'none';
     rayIframe.src = 'about:blank';
-    btnBench.classList.add('active');
+    btnWorkload.classList.add('active');
     btnRay.classList.remove('active');
-    drawAll();
+    switchWorkloadView(workloadType);
   }
 }
 
@@ -379,7 +461,6 @@ let startTime = null;
 const siteStats = {};
 const nodes = {};
 function mergeSiteStats(incoming) {
-  // Deep merge that preserves non-empty cluster_name
   for (const [siteId, data] of Object.entries(incoming || {})) {
     if (!siteStats[siteId]) { siteStats[siteId] = data; }
     else {
@@ -389,7 +470,7 @@ function mergeSiteStats(incoming) {
     }
   }
 }
-const taskHistory = [];  // recent tasks for placement animation
+const taskHistory = [];
 const throughputHistory = [];
 let lastThroughputCheck = null;
 let lastTaskCounts = {};
@@ -414,7 +495,124 @@ function updateHeaderLegend() {
   }).join('');
 }
 
-// --- Topology Canvas ---
+// =====================================================================
+// Fractal Canvas — offscreen compositing + zoom/pan
+// =====================================================================
+const fractalCanvas = document.getElementById('fractal-canvas');
+const fractalCtx = fractalCanvas.getContext('2d');
+let offscreen = null;
+let offCtx = null;
+let fractalZoom = 1;
+let fractalPanX = 0, fractalPanY = 0;
+let isDragging = false;
+let dragStartX = 0, dragStartY = 0;
+let dragPanStartX = 0, dragPanStartY = 0;
+// Track which tiles have been drawn (for border color)
+const drawnTiles = {}; // "tx,ty" -> siteId
+
+function initOffscreen() {
+  if (gridSize <= 0 || imageSize <= 0) return;
+  const totalPx = gridSize * imageSize;
+  offscreen = document.createElement('canvas');
+  offscreen.width = totalPx;
+  offscreen.height = totalPx;
+  offCtx = offscreen.getContext('2d');
+  offCtx.fillStyle = '#111';
+  offCtx.fillRect(0, 0, totalPx, totalPx);
+  // Draw grid lines
+  offCtx.strokeStyle = '#1e2a3a';
+  offCtx.lineWidth = 1;
+  for (let i = 0; i <= gridSize; i++) {
+    const p = i * imageSize;
+    offCtx.beginPath(); offCtx.moveTo(p, 0); offCtx.lineTo(p, totalPx); offCtx.stroke();
+    offCtx.beginPath(); offCtx.moveTo(0, p); offCtx.lineTo(totalPx, p); offCtx.stroke();
+  }
+}
+
+function drawTileToOffscreen(tx, ty, pngB64, siteId) {
+  if (!offCtx) return;
+  const img = new Image();
+  img.onload = () => {
+    const px = tx * imageSize;
+    const py = ty * imageSize;
+    offCtx.drawImage(img, px, py, imageSize, imageSize);
+    // Draw site-colored border
+    const color = getSiteColor(siteId);
+    offCtx.strokeStyle = color;
+    offCtx.lineWidth = 2;
+    offCtx.strokeRect(px + 1, py + 1, imageSize - 2, imageSize - 2);
+    drawnTiles[tx + ',' + ty] = siteId;
+    renderFractalView();
+  };
+  img.src = 'data:image/png;base64,' + pngB64;
+}
+
+function resizeFractalCanvas() {
+  const wrap = fractalCanvas.parentElement;
+  if (!wrap) return;
+  const rect = wrap.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  fractalCanvas.width = rect.width * dpr;
+  fractalCanvas.height = rect.height * dpr;
+  fractalCtx.scale(dpr, dpr);
+}
+
+function renderFractalView() {
+  if (!offscreen) return;
+  const wrap = fractalCanvas.parentElement;
+  if (!wrap) return;
+  const rect = wrap.getBoundingClientRect();
+  const w = rect.width, h = rect.height;
+
+  fractalCtx.fillStyle = '#0a0e17';
+  fractalCtx.fillRect(0, 0, w, h);
+
+  // Fit offscreen into view with zoom/pan
+  const totalPx = gridSize * imageSize;
+  const scale = Math.min(w / totalPx, h / totalPx) * fractalZoom;
+  const cx = w / 2 + fractalPanX;
+  const cy = h / 2 + fractalPanY;
+  const drawW = totalPx * scale;
+  const drawH = totalPx * scale;
+
+  fractalCtx.drawImage(offscreen, cx - drawW / 2, cy - drawH / 2, drawW, drawH);
+}
+
+// Zoom/pan event handlers
+fractalCanvas.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+  fractalZoom = Math.max(0.5, Math.min(20, fractalZoom * factor));
+  renderFractalView();
+}, { passive: false });
+
+fractalCanvas.addEventListener('mousedown', (e) => {
+  isDragging = true;
+  dragStartX = e.clientX;
+  dragStartY = e.clientY;
+  dragPanStartX = fractalPanX;
+  dragPanStartY = fractalPanY;
+});
+
+window.addEventListener('mousemove', (e) => {
+  if (!isDragging) return;
+  fractalPanX = dragPanStartX + (e.clientX - dragStartX);
+  fractalPanY = dragPanStartY + (e.clientY - dragStartY);
+  renderFractalView();
+});
+
+window.addEventListener('mouseup', () => { isDragging = false; });
+
+fractalCanvas.addEventListener('dblclick', () => {
+  fractalZoom = 1;
+  fractalPanX = 0;
+  fractalPanY = 0;
+  renderFractalView();
+});
+
+// =====================================================================
+// Benchmark Canvases (unchanged)
+// =====================================================================
 const topoCanvas = document.getElementById('topology-canvas');
 const topoCtx = topoCanvas.getContext('2d');
 
@@ -440,9 +638,7 @@ function drawTopology() {
 
   const pad = { left: 40, right: 40, top: 30, bottom: 20 };
   const plotW = w - pad.left - pad.right;
-  const plotH = h - pad.top - pad.bottom;
 
-  // Draw Ray cluster hub in center
   const hubX = w / 2;
   const hubY = pad.top + 30;
   topoCtx.fillStyle = '#22d3ee22';
@@ -457,7 +653,6 @@ function drawTopology() {
   topoCtx.textAlign = 'center';
   topoCtx.fillText('RAY', hubX, hubY + 4);
 
-  // Draw sites as groups
   const siteWidth = plotW / siteIds.length;
   siteIds.forEach((siteId, sIdx) => {
     const color = getSiteColor(siteId);
@@ -465,7 +660,6 @@ function drawTopology() {
     const siteX = pad.left + sIdx * siteWidth + siteWidth / 2;
     const siteY = pad.top + 100;
 
-    // Site label
     topoCtx.fillStyle = color;
     topoCtx.font = 'bold 12px Inter, system-ui, sans-serif';
     topoCtx.textAlign = 'center';
@@ -473,7 +667,6 @@ function drawTopology() {
     const scheduler = stats.scheduler_type ? ` (${stats.scheduler_type})` : '';
     topoCtx.fillText(label + scheduler, siteX, siteY - 15);
 
-    // Connection line to hub
     topoCtx.strokeStyle = color + '60';
     topoCtx.lineWidth = 2;
     topoCtx.setLineDash([4, 4]);
@@ -483,7 +676,6 @@ function drawTopology() {
     topoCtx.stroke();
     topoCtx.setLineDash([]);
 
-    // Draw node circles
     const nodeIps = stats.node_ips || [];
     const nodeCount = Math.max(nodeIps.length, 1);
     const nodeSpacing = Math.min(50, (siteWidth - 40) / nodeCount);
@@ -494,7 +686,6 @@ function drawTopology() {
       const ny = siteY + 15;
       const nodeRadius = 16;
 
-      // Node circle
       topoCtx.fillStyle = color + '25';
       topoCtx.beginPath();
       topoCtx.arc(nx, ny, nodeRadius, 0, Math.PI * 2);
@@ -503,7 +694,6 @@ function drawTopology() {
       topoCtx.lineWidth = 1.5;
       topoCtx.stroke();
 
-      // CPU icon
       topoCtx.fillStyle = color;
       topoCtx.font = '9px Inter, system-ui, sans-serif';
       topoCtx.textAlign = 'center';
@@ -511,7 +701,6 @@ function drawTopology() {
       topoCtx.fillText(cpus + ' CPU', nx, ny + 4);
     }
 
-    // Site stats below
     const statsY = siteY + 50;
     topoCtx.fillStyle = '#6b7a90';
     topoCtx.font = '10px Inter, system-ui, sans-serif';
@@ -524,7 +713,6 @@ function drawTopology() {
   });
 }
 
-// --- Task Placement Canvas ---
 const placeCanvas = document.getElementById('placement-canvas');
 const placeCtx = placeCanvas.getContext('2d');
 
@@ -546,14 +734,12 @@ function drawPlacement() {
   const plotW = w - pad.left - pad.right;
   const plotH = h - pad.top - pad.bottom;
 
-  // Get max count for scaling
   let maxCount = 1;
   siteIds.forEach(s => {
     const count = siteStats[s].task_count || 0;
     if (count > maxCount) maxCount = count;
   });
 
-  // Draw bars
   const barWidth = Math.min(80, plotW / siteIds.length - 20);
   const spacing = (plotW - barWidth * siteIds.length) / (siteIds.length + 1);
 
@@ -564,32 +750,27 @@ function drawPlacement() {
     const barH = (count / maxCount) * plotH;
     const y = pad.top + plotH - barH;
 
-    // Bar gradient
     const grad = placeCtx.createLinearGradient(x, y, x, y + barH);
     grad.addColorStop(0, color);
     grad.addColorStop(1, color + '60');
     placeCtx.fillStyle = grad;
     placeCtx.fillRect(x, y, barWidth, barH);
 
-    // Bar border
     placeCtx.strokeStyle = color;
     placeCtx.lineWidth = 1;
     placeCtx.strokeRect(x, y, barWidth, barH);
 
-    // Count label on top
     placeCtx.fillStyle = color;
     placeCtx.font = 'bold 14px Inter, system-ui, sans-serif';
     placeCtx.textAlign = 'center';
     placeCtx.fillText(count.toString(), x + barWidth / 2, y - 8);
 
-    // Site label below
     placeCtx.fillStyle = '#6b7a90';
     placeCtx.font = '10px Inter, system-ui, sans-serif';
     const label = siteStats[siteId].cluster_name || siteId;
     placeCtx.fillText(label, x + barWidth / 2, pad.top + plotH + 16);
   });
 
-  // Y-axis
   placeCtx.strokeStyle = '#1e2a3a';
   placeCtx.lineWidth = 1;
   placeCtx.beginPath();
@@ -598,7 +779,6 @@ function drawPlacement() {
   placeCtx.lineTo(pad.left + plotW, pad.top + plotH);
   placeCtx.stroke();
 
-  // Y-axis labels
   placeCtx.fillStyle = '#6b7a90';
   placeCtx.font = '10px Inter, system-ui, sans-serif';
   placeCtx.textAlign = 'right';
@@ -615,7 +795,6 @@ function drawPlacement() {
   }
 }
 
-// --- Throughput Main Canvas ---
 const tMainCanvas = document.getElementById('throughput-main-canvas');
 const tMainCtx = tMainCanvas.getContext('2d');
 
@@ -652,7 +831,6 @@ function drawThroughputMain() {
     if (stacked > maxVal) maxVal = stacked;
   });
 
-  // Draw axes
   tMainCtx.strokeStyle = '#1e2a3a';
   tMainCtx.lineWidth = 1;
   tMainCtx.beginPath();
@@ -661,13 +839,11 @@ function drawThroughputMain() {
   tMainCtx.lineTo(pad.left + plotW, pad.top + plotH);
   tMainCtx.stroke();
 
-  // Stacked area chart
   const dx = plotW / Math.max(points.length - 1, 1);
 
-  sites.forEach((siteId, sIdx) => {
+  sites.forEach((siteId) => {
     const color = getSiteColor(siteId);
 
-    // Fill area
     tMainCtx.fillStyle = color + '30';
     tMainCtx.beginPath();
     tMainCtx.moveTo(pad.left, pad.top + plotH);
@@ -681,7 +857,6 @@ function drawThroughputMain() {
     tMainCtx.closePath();
     tMainCtx.fill();
 
-    // Line
     tMainCtx.strokeStyle = color;
     tMainCtx.lineWidth = 2;
     tMainCtx.beginPath();
@@ -694,7 +869,6 @@ function drawThroughputMain() {
     tMainCtx.stroke();
   });
 
-  // Y-axis labels
   tMainCtx.fillStyle = '#6b7a90';
   tMainCtx.font = '10px Inter, system-ui, sans-serif';
   tMainCtx.textAlign = 'right';
@@ -710,13 +884,11 @@ function drawThroughputMain() {
     tMainCtx.stroke();
   }
 
-  // X-axis label
   tMainCtx.fillStyle = '#6b7a90';
   tMainCtx.font = '10px Inter, system-ui, sans-serif';
   tMainCtx.textAlign = 'center';
   tMainCtx.fillText('Time (seconds)', pad.left + plotW / 2, h - 4);
 
-  // X-axis tick labels
   const labelStep = Math.max(1, Math.floor(points.length / 6));
   for (let i = 0; i < points.length; i += labelStep) {
     const x = pad.left + i * dx;
@@ -724,7 +896,6 @@ function drawThroughputMain() {
   }
 }
 
-// --- Throughput Mini Canvas ---
 const tCanvas = document.getElementById('throughput-canvas');
 const tCtx = tCanvas.getContext('2d');
 
@@ -769,12 +940,17 @@ function drawThroughputMini() {
   });
 }
 
+// =====================================================================
+// UI Update
+// =====================================================================
 function updateUI() {
+  const unit = workloadType === 'fractal' ? 'tiles' : 'tasks';
+
   // Progress
   const pct = totalPlanned > 0 ? (totalCompleted / totalPlanned * 100) : 0;
   document.getElementById('progress-bar').style.width = Math.min(pct, 100) + '%';
   document.getElementById('progress-label').textContent =
-    `${totalCompleted} / ${totalPlanned} tasks (${Math.round(pct)}%)`;
+    `${totalCompleted} / ${totalPlanned} ${unit} (${Math.round(pct)}%)`;
 
   // Stats
   document.getElementById('stat-nodes').textContent = Object.keys(nodes).length;
@@ -793,6 +969,7 @@ function updateUI() {
     throughput: 'Throughput Test',
     compute: 'CPU Compute',
     scaling: 'Scaling Test',
+    rendering: 'Rendering',
     complete: 'Complete',
   };
   if (phase === 'waiting') {
@@ -819,6 +996,7 @@ function updateUI() {
       const workers = s.num_workers || 0;
       const siteLabel = `Site ${idx + 1}`;
       const avgMs = s.task_count > 0 ? Math.round(s.total_ms / s.task_count) : 0;
+      const countLabel = workloadType === 'fractal' ? 'tiles' : 'tasks';
       container.innerHTML += `
         <div class="site-card">
           <div class="site-icon" style="background:${color}20; color:${color};">&#9900;</div>
@@ -832,30 +1010,32 @@ function updateUI() {
     updateHeaderLegend();
   }
 
-  // Benchmark results
-  const resultsCard = document.getElementById('results-card');
-  const resultsContainer = document.getElementById('results-container');
-  if (throughputResults || computeResults.length > 0 || scalingResults) {
-    resultsCard.style.display = '';
-    let html = '';
-    if (throughputResults) {
-      html += `<div class="result-row"><span class="result-label">Throughput</span><span class="result-value">${throughputResults.tasks_per_sec} tasks/s</span></div>`;
+  // Benchmark results (only in benchmark mode)
+  if (workloadType === 'benchmark') {
+    const resultsCard = document.getElementById('results-card');
+    const resultsContainer = document.getElementById('results-container');
+    if (throughputResults || computeResults.length > 0 || scalingResults) {
+      resultsCard.style.display = '';
+      let html = '';
+      if (throughputResults) {
+        html += `<div class="result-row"><span class="result-label">Throughput</span><span class="result-value">${throughputResults.tasks_per_sec} tasks/s</span></div>`;
+      }
+      if (computeResults.length > 0) {
+        const avgGflops = computeResults.reduce((a, b) => a + b.gflops, 0) / computeResults.length;
+        html += `<div class="result-row"><span class="result-label">Avg GFLOPS</span><span class="result-value">${avgGflops.toFixed(1)}</span></div>`;
+      }
+      if (scalingResults) {
+        html += `<div class="result-row"><span class="result-label">Speedup</span><span class="result-value">${scalingResults.speedup}x</span></div>`;
+        html += `<div class="result-row"><span class="result-label">1-site</span><span class="result-value">${scalingResults.single_site_tps} t/s</span></div>`;
+        html += `<div class="result-row"><span class="result-label">2-site</span><span class="result-value">${scalingResults.dual_site_tps} t/s</span></div>`;
+      }
+      resultsContainer.innerHTML = html;
     }
-    if (computeResults.length > 0) {
-      const avgGflops = computeResults.reduce((a, b) => a + b.gflops, 0) / computeResults.length;
-      html += `<div class="result-row"><span class="result-label">Avg GFLOPS</span><span class="result-value">${avgGflops.toFixed(1)}</span></div>`;
-    }
-    if (scalingResults) {
-      html += `<div class="result-row"><span class="result-label">Speedup</span><span class="result-value">${scalingResults.speedup}x</span></div>`;
-      html += `<div class="result-row"><span class="result-label">1-site</span><span class="result-value">${scalingResults.single_site_tps} t/s</span></div>`;
-      html += `<div class="result-row"><span class="result-label">2-site</span><span class="result-value">${scalingResults.dual_site_tps} t/s</span></div>`;
-    }
-    resultsContainer.innerHTML = html;
   }
 
-  // Throughput recording
-  const now = Date.now() / 1000;
-  if (totalCompleted > 0) {
+  // Throughput recording (benchmark mode only)
+  if (workloadType === 'benchmark' && totalCompleted > 0) {
+    const now = Date.now() / 1000;
     if (lastThroughputCheck === null) {
       lastThroughputCheck = now;
       siteIds.forEach(s => { lastTaskCounts[s] = siteStats[s].task_count || 0; });
@@ -878,7 +1058,9 @@ function updateUI() {
   }
 }
 
+// =====================================================================
 // WebSocket
+// =====================================================================
 function connect() {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const basePath = location.pathname.replace(/\/$/, '');
@@ -896,6 +1078,13 @@ function connect() {
       mergeSiteStats(msg.site_stats);
       Object.assign(nodes, msg.nodes || {});
 
+      if (msg.workload_type) {
+        workloadType = msg.workload_type;
+        gridSize = msg.grid_size || 0;
+        imageSize = msg.image_size || 0;
+        switchWorkloadView(workloadType);
+      }
+
       if (totalCompleted > 0) {
         fetch(basePath + '/api/state').then(r => r.json()).then(data => {
           totalCompleted = data.total_completed;
@@ -903,32 +1092,59 @@ function connect() {
           phase = data.phase;
           mergeSiteStats(data.site_stats);
           Object.assign(nodes, data.nodes || {});
-          throughputResults = data.throughput_results;
-          computeResults = data.compute_results || [];
-          scalingResults = data.scaling_results;
-          if (data.elapsed_s > 0 && !startTime) startTime = Date.now() / 1000 - data.elapsed_s;
 
-          if (data.throughput_history && data.throughput_history.length > 0) {
-            throughputHistory.length = 0;
-            const baseTs = startTime || (Date.now() / 1000 - data.elapsed_s);
-            data.throughput_history.forEach(b => {
-              throughputHistory.push({ ts: baseTs + b.ts_offset, total: b.total, perSite: b.perSite });
-            });
-            lastThroughputCheck = Date.now() / 1000;
-            Object.keys(siteStats).forEach(s => { lastTaskCounts[s] = siteStats[s].task_count || 0; });
+          if (data.workload_type === 'fractal') {
+            workloadType = 'fractal';
+            gridSize = data.grid_size || gridSize;
+            imageSize = data.image_size || imageSize;
+            switchWorkloadView('fractal');
+            // Replay cached tiles
+            if (data.fractal_tiles) {
+              for (const [key, tile] of Object.entries(data.fractal_tiles)) {
+                if (tile.png_b64) {
+                  drawTileToOffscreen(tile.tile_x, tile.tile_y, tile.png_b64, tile.site_id);
+                }
+              }
+            }
+          } else {
+            throughputResults = data.throughput_results;
+            computeResults = data.compute_results || [];
+            scalingResults = data.scaling_results;
+            if (data.elapsed_s > 0 && !startTime) startTime = Date.now() / 1000 - data.elapsed_s;
+
+            if (data.throughput_history && data.throughput_history.length > 0) {
+              throughputHistory.length = 0;
+              const baseTs = startTime || (Date.now() / 1000 - data.elapsed_s);
+              data.throughput_history.forEach(b => {
+                throughputHistory.push({ ts: baseTs + b.ts_offset, total: b.total, perSite: b.perSite });
+              });
+              lastThroughputCheck = Date.now() / 1000;
+              Object.keys(siteStats).forEach(s => { lastTaskCounts[s] = siteStats[s].task_count || 0; });
+            }
+
+            drawAll();
           }
-
-          drawAll();
           updateUI();
         });
       }
     } else if (msg.type === 'worker') {
       Object.assign(nodes, msg.nodes || {});
       mergeSiteStats(msg.site_stats);
-      drawTopology();
+      if (workloadType === 'benchmark') drawTopology();
       updateUI();
     } else if (msg.type === 'phase') {
       phase = msg.phase;
+      updateUI();
+    } else if (msg.type === 'config') {
+      if (msg.workload_type) {
+        workloadType = msg.workload_type;
+        gridSize = msg.grid_size || gridSize;
+        imageSize = msg.image_size || imageSize;
+        totalPlanned = msg.total_tasks || msg.total_tiles || totalPlanned;
+        switchWorkloadView(workloadType);
+      } else {
+        totalPlanned = msg.total_tasks || 0;
+      }
       updateUI();
     } else if (msg.type === 'task') {
       if (!startTime) startTime = Date.now() / 1000;
@@ -936,15 +1152,19 @@ function connect() {
       totalPlanned = msg.total_planned;
       phase = msg.phase;
       mergeSiteStats(msg.site_stats);
-      drawPlacement();
+      if (workloadType === 'benchmark') drawPlacement();
+      updateUI();
+    } else if (msg.type === 'tile') {
+      if (!startTime) startTime = Date.now() / 1000;
+      totalCompleted = msg.completed;
+      totalPlanned = msg.total;
+      mergeSiteStats(msg.site_stats);
+      drawTileToOffscreen(msg.tile_x, msg.tile_y, msg.png_b64, msg.site_id);
       updateUI();
     } else if (msg.type === 'results') {
       if (msg.result_type === 'throughput') throughputResults = msg.data;
       else if (msg.result_type === 'compute') computeResults.push(msg.data);
       else if (msg.result_type === 'scaling') scalingResults = msg.data;
-      updateUI();
-    } else if (msg.type === 'config') {
-      totalPlanned = msg.total_tasks || 0;
       updateUI();
     }
   };
@@ -956,10 +1176,15 @@ function connect() {
 }
 
 function drawAll() {
-  drawTopology();
-  drawPlacement();
-  drawThroughputMain();
-  drawThroughputMini();
+  if (workloadType === 'benchmark') {
+    drawTopology();
+    drawPlacement();
+    drawThroughputMain();
+    drawThroughputMini();
+  } else {
+    resizeFractalCanvas();
+    renderFractalView();
+  }
 }
 
 window.addEventListener('resize', drawAll);
