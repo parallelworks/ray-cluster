@@ -22,6 +22,11 @@ echo "PW user:         ${PW_USER}"
 JOB_DIR="${PW_PARENT_JOB_DIR%/}"
 RAY_PORT=6379
 
+# Fixed worker ports for bidirectional tunnel
+# These must match what start_ray_workers.sh uses with --node-manager-port / --object-manager-port
+WORKER_RAYLET_PORT=16380
+WORKER_OBJ_PORT=16381
+
 # Find pw CLI
 PW_CMD=""
 for cmd in pw ~/pw/pw; do
@@ -78,10 +83,18 @@ echo "Tunnel Ray port on cloud: ${TUNNEL_RAY_PORT}"
 echo "${TUNNEL_PORT}" > "${JOB_DIR}/TUNNEL_PORT"
 echo "${TUNNEL_RAY_PORT}" > "${JOB_DIR}/TUNNEL_RAY_PORT"
 
-# Start reverse SSH tunnel with both port forwards:
-#   cloud:TUNNEL_PORT     -> onprem:DASHBOARD_PORT
-#   cloud:TUNNEL_RAY_PORT -> onprem:RAY_PORT
-echo "Establishing reverse SSH tunnel..."
+# Start SSH tunnel with both reverse (-R) and forward (-L) port forwards:
+#   Reverse (cloud can reach on-prem):
+#     cloud:TUNNEL_PORT     -> onprem:DASHBOARD_PORT  (dashboard API)
+#     cloud:TUNNEL_RAY_PORT -> onprem:RAY_PORT         (Ray GCS)
+#   Forward (on-prem can reach cloud worker):
+#     onprem:WORKER_RAYLET_PORT -> cloud:WORKER_RAYLET_PORT  (raylet heartbeats)
+#     onprem:WORKER_OBJ_PORT   -> cloud:WORKER_OBJ_PORT     (object transfer)
+echo "Establishing bidirectional SSH tunnel..."
+echo "  Reverse: cloud:${TUNNEL_PORT} -> onprem:${DASHBOARD_PORT} (dashboard)"
+echo "  Reverse: cloud:${TUNNEL_RAY_PORT} -> onprem:${RAY_PORT} (Ray GCS)"
+echo "  Forward: onprem:${WORKER_RAYLET_PORT} -> cloud:${WORKER_RAYLET_PORT} (raylet)"
+echo "  Forward: onprem:${WORKER_OBJ_PORT} -> cloud:${WORKER_OBJ_PORT} (object mgr)"
 ssh -i ~/.ssh/pwcli \
     -o StrictHostKeyChecking=no \
     -o UserKnownHostsFile=/dev/null \
@@ -90,15 +103,19 @@ ssh -i ~/.ssh/pwcli \
     -o ProxyCommand="pw ssh --proxy-command %h" \
     -R "${TUNNEL_PORT}:localhost:${DASHBOARD_PORT}" \
     -R "${TUNNEL_RAY_PORT}:localhost:${RAY_PORT}" \
+    -L "${WORKER_RAYLET_PORT}:localhost:${WORKER_RAYLET_PORT}" \
+    -L "${WORKER_OBJ_PORT}:localhost:${WORKER_OBJ_PORT}" \
     -N "${PW_USER}@${SSH_TARGET}" &
 TUNNEL_PID=$!
 sleep 3
 
 if kill -0 ${TUNNEL_PID} 2>/dev/null; then
     echo "=========================================="
-    echo "Reverse tunnel ESTABLISHED (PID ${TUNNEL_PID})"
-    echo "  Cloud localhost:${TUNNEL_PORT} -> On-prem localhost:${DASHBOARD_PORT}"
-    echo "  Cloud localhost:${TUNNEL_RAY_PORT} -> On-prem localhost:${RAY_PORT}"
+    echo "Bidirectional tunnel ESTABLISHED (PID ${TUNNEL_PID})"
+    echo "  Reverse: Cloud localhost:${TUNNEL_PORT} -> On-prem localhost:${DASHBOARD_PORT}"
+    echo "  Reverse: Cloud localhost:${TUNNEL_RAY_PORT} -> On-prem localhost:${RAY_PORT}"
+    echo "  Forward: On-prem localhost:${WORKER_RAYLET_PORT} -> Cloud localhost:${WORKER_RAYLET_PORT}"
+    echo "  Forward: On-prem localhost:${WORKER_OBJ_PORT} -> Cloud localhost:${WORKER_OBJ_PORT}"
     echo "=========================================="
 
     # Verify tunnel by testing connectivity from cloud side
