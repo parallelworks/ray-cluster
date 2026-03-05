@@ -40,22 +40,37 @@ echo "Waiting for Ray head at ${RAY_HEAD_ADDRESS}..."
 RAY_HOST=$(echo "${RAY_HEAD_ADDRESS}" | cut -d: -f1)
 RAY_TUNNEL_PORT=$(echo "${RAY_HEAD_ADDRESS}" | cut -d: -f2)
 
+# Diagnostic: check what's listening on this machine
+echo "=== Network diagnostics ==="
+echo "Checking listening ports for ${RAY_TUNNEL_PORT}..."
+ss -tlnp 2>/dev/null | grep ":${RAY_TUNNEL_PORT}" || echo "  Port ${RAY_TUNNEL_PORT} NOT found in ss output"
+echo "All listening ports on localhost:"
+ss -tlnp 2>/dev/null | grep "127.0.0" | head -20 || echo "  (ss unavailable)"
+echo "Checking with netstat..."
+netstat -tlnp 2>/dev/null | grep ":${RAY_TUNNEL_PORT}" || echo "  Port ${RAY_TUNNEL_PORT} NOT found in netstat output"
+echo "=== End diagnostics ==="
+
 attempt=1
 MAX_ATTEMPTS=60
 while [ ${attempt} -le ${MAX_ATTEMPTS} ]; do
     if python3 -c "
 import socket
-s = socket.socket()
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 s.settimeout(3)
 try:
-    s.connect(('${RAY_HOST}', ${RAY_TUNNEL_PORT}))
+    s.connect(('127.0.0.1', ${RAY_TUNNEL_PORT}))
     s.close()
     exit(0)
-except:
+except Exception as e:
+    print(f'  Connection error: {e}')
     exit(1)
-" 2>/dev/null; then
+"; then
         echo "Ray head reachable!"
         break
+    fi
+    if [ ${attempt} -eq 1 ] || [ ${attempt} -eq 10 ] || [ ${attempt} -eq 30 ]; then
+        echo "  Diagnostic at attempt ${attempt}:"
+        ss -tlnp 2>/dev/null | grep ":${RAY_TUNNEL_PORT}" || echo "    Port ${RAY_TUNNEL_PORT} still not listening"
     fi
     echo "[${attempt}/${MAX_ATTEMPTS}] Waiting for Ray head..."
     sleep 2
@@ -63,7 +78,10 @@ except:
 done
 
 if [ ${attempt} -gt ${MAX_ATTEMPTS} ]; then
-    echo "[ERROR] Timeout waiting for Ray head"
+    echo "[ERROR] Timeout waiting for Ray head at ${RAY_HOST}:${RAY_TUNNEL_PORT}"
+    echo "Final diagnostic:"
+    ss -tlnp 2>/dev/null | head -30 || true
+    netstat -tlnp 2>/dev/null | head -30 || true
     exit 1
 fi
 
