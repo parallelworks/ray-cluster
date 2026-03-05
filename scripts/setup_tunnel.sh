@@ -89,7 +89,7 @@ ssh -i ~/.ssh/pwcli \
     -o ServerAliveInterval=15 \
     -o ProxyCommand="pw ssh --proxy-command %h" \
     -R "${TUNNEL_PORT}:localhost:${DASHBOARD_PORT}" \
-    -R "${TUNNEL_RAY_PORT}:${RAY_HEAD_IP}:${RAY_PORT}" \
+    -R "${TUNNEL_RAY_PORT}:localhost:${RAY_PORT}" \
     -N "${PW_USER}@${SSH_TARGET}" &
 TUNNEL_PID=$!
 sleep 3
@@ -98,8 +98,25 @@ if kill -0 ${TUNNEL_PID} 2>/dev/null; then
     echo "=========================================="
     echo "Reverse tunnel ESTABLISHED (PID ${TUNNEL_PID})"
     echo "  Cloud localhost:${TUNNEL_PORT} -> On-prem localhost:${DASHBOARD_PORT}"
-    echo "  Cloud localhost:${TUNNEL_RAY_PORT} -> On-prem ${RAY_HEAD_IP}:${RAY_PORT}"
+    echo "  Cloud localhost:${TUNNEL_RAY_PORT} -> On-prem localhost:${RAY_PORT}"
     echo "=========================================="
+
+    # Verify tunnel by testing connectivity from cloud side
+    echo "Verifying tunnel from cloud..."
+    sleep 2
+    VERIFY_OK=false
+    for i in 1 2 3 4 5; do
+        if run_on_cloud "python3 -c \"import socket; s=socket.socket(); s.settimeout(5); s.connect(('localhost', ${TUNNEL_RAY_PORT})); s.close(); print('Tunnel Ray port OK')\"" 2>/dev/null; then
+            VERIFY_OK=true
+            break
+        fi
+        echo "  Verification attempt ${i}/5..."
+        sleep 2
+    done
+    if [ "${VERIFY_OK}" = "false" ]; then
+        echo "[WARN] Could not verify Ray tunnel port from cloud"
+    fi
+
     echo "TUNNEL_PORT=${TUNNEL_PORT}" >> "${OUTPUTS}"
     echo "TUNNEL_RAY_PORT=${TUNNEL_RAY_PORT}" >> "${OUTPUTS}"
 
