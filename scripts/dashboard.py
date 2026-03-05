@@ -207,6 +207,9 @@ async def receive_task(request: Request):
     stats["total_ms"] += task.get("duration_ms", 0)
     if task.get("cluster_name"):
         stats["cluster_name"] = task["cluster_name"]
+    # Propagate cluster_name to task result if site_stats already has one (from worker registration)
+    if not task.get("cluster_name") and stats.get("cluster_name"):
+        task["cluster_name"] = stats["cluster_name"]
     if task.get("scheduler_type"):
         stats["scheduler_type"] = task["scheduler_type"]
     if node_ip not in stats["node_ips"]:
