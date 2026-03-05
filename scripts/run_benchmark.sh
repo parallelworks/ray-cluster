@@ -2,20 +2,33 @@
 # run_benchmark.sh — Submit Ray benchmark and stream results to dashboard
 #
 # Environment variables:
-#   DASHBOARD_URL - URL of the dashboard
-#   RAY_HEAD_IP   - IP of the Ray head node (for site detection)
-#   NUM_TASKS     - Number of benchmark tasks (default: 500)
-#   MATRIX_SIZE   - Matrix size for CPU compute (default: 500)
+#   DASHBOARD_URL  - URL of the dashboard
+#   RAY_HEAD_IP    - IP of the Ray head node (for site detection)
+#   WORKLOAD_TYPE  - "benchmark" or "fractal" (default: benchmark)
+#   NUM_TASKS      - Number of benchmark tasks (default: 500)
+#   MATRIX_SIZE    - Matrix size for CPU compute (default: 500)
+#   GRID_SIZE      - Fractal grid size per side (default: 16)
+#   IMAGE_SIZE     - Fractal tile pixel size (default: 256)
+#   PALETTE        - Fractal color palette (default: electric)
 
 set -e
 
+WORKLOAD_TYPE="${WORKLOAD_TYPE:-benchmark}"
+GRID_SIZE="${GRID_SIZE:-16}"
+IMAGE_SIZE="${IMAGE_SIZE:-256}"
+PALETTE="${PALETTE:-electric}"
+
 echo "=========================================="
-echo "Ray Benchmark Starting: $(date)"
+echo "Ray Workload Starting: $(date)"
 echo "=========================================="
-echo "Dashboard URL: ${DASHBOARD_URL}"
-echo "Ray head IP:   ${RAY_HEAD_IP}"
-echo "Num tasks:     ${NUM_TASKS:-500}"
-echo "Matrix size:   ${MATRIX_SIZE:-500}"
+echo "Dashboard URL:  ${DASHBOARD_URL}"
+echo "Ray head IP:    ${RAY_HEAD_IP}"
+echo "Workload type:  ${WORKLOAD_TYPE}"
+echo "Num tasks:      ${NUM_TASKS:-500}"
+echo "Matrix size:    ${MATRIX_SIZE:-500}"
+echo "Grid size:      ${GRID_SIZE}"
+echo "Image size:     ${IMAGE_SIZE}"
+echo "Palette:        ${PALETTE}"
 
 JOB_DIR="${PW_PARENT_JOB_DIR%/}"
 SCRIPT_DIR="${JOB_DIR}/scripts"
@@ -98,11 +111,15 @@ echo "Scheduler type: ${SCHEDULER_TYPE}"
 ${PYTHON_CMD} "${SCRIPT_DIR}/benchmark.py" \
     --dashboard-url "${DASHBOARD_URL}" \
     --ray-head-ip "${RAY_HEAD_IP}" \
+    --workload-type "${WORKLOAD_TYPE}" \
     --num-tasks "${NUM_TASKS:-500}" \
     --matrix-size "${MATRIX_SIZE:-500}" \
+    --grid-size "${GRID_SIZE}" \
+    --image-size "${IMAGE_SIZE}" \
+    --palette "${PALETTE}" \
     --onprem-cluster-name "${CLUSTER_NAME}" \
     --onprem-scheduler-type "${SCHEDULER_TYPE}"
 
 echo "=========================================="
-echo "Benchmark Complete!"
+echo "Workload Complete!"
 echo "=========================================="

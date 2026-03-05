@@ -159,8 +159,12 @@ jobs:
           set -e
           export DASHBOARD_URL="http://localhost:$(cat ${PW_PARENT_JOB_DIR}/SESSION_PORT)"
           export RAY_HEAD_IP=$(cat "${PW_PARENT_JOB_DIR}/RAY_HEAD_IP")
+          export WORKLOAD_TYPE="${{ inputs.workload_settings.workload_type }}"
           export NUM_TASKS="${{ inputs.benchmark_settings.num_tasks }}"
           export MATRIX_SIZE="${{ inputs.benchmark_settings.matrix_size }}"
+          export GRID_SIZE="${{ inputs.workload_settings.grid_size }}"
+          export IMAGE_SIZE="${{ inputs.workload_settings.image_size }}"
+          export PALETTE="${{ inputs.workload_settings.palette }}"
           # Count worker sites from targets JSON (total sites minus head)
           export TARGETS_JSON='${{ inputs.targets }}'
           export NUM_WORKER_SITES=$(python3 -c "import json,os; print(len(json.loads(os.environ['TARGETS_JSON']))-1)")
@@ -302,11 +306,77 @@ jobs:
                 label: "2.38.0"
 
       # -----------------------------------------------------------------------
+      # Workload Settings
+      # -----------------------------------------------------------------------
+      workload_settings:
+        type: group
+        label: Workload Settings
+        items:
+          workload_type:
+            type: dropdown
+            label: Workload Type
+            tooltip: Choose between mathematical benchmark (charts) or fractal rendering (visual canvas)
+            default: benchmark
+            options:
+              - value: benchmark
+                label: "Mathematical Benchmark"
+              - value: fractal
+                label: "Fractal Rendering"
+
+          grid_size:
+            type: dropdown
+            label: Grid Size
+            tooltip: Number of tiles per side (total tiles = N x N)
+            default: "16"
+            hidden: ${{ inputs.workload_settings.workload_type != 'fractal' }}
+            ignore: ${{ .hidden }}
+            options:
+              - value: "8"
+                label: "8x8 (64 tiles)"
+              - value: "16"
+                label: "16x16 (256 tiles)"
+              - value: "32"
+                label: "32x32 (1024 tiles)"
+
+          image_size:
+            type: dropdown
+            label: Tile Resolution
+            tooltip: Size of each tile in pixels
+            default: "256"
+            hidden: ${{ inputs.workload_settings.workload_type != 'fractal' }}
+            ignore: ${{ .hidden }}
+            options:
+              - value: "128"
+                label: "128px (fast)"
+              - value: "256"
+                label: "256px (default)"
+              - value: "512"
+                label: "512px (high quality)"
+
+          palette:
+            type: dropdown
+            label: Color Palette
+            default: electric
+            hidden: ${{ inputs.workload_settings.workload_type != 'fractal' }}
+            ignore: ${{ .hidden }}
+            options:
+              - value: electric
+                label: Electric Blue
+              - value: fire
+                label: Fire
+              - value: ocean
+                label: Ocean
+              - value: cosmic
+                label: Cosmic Purple
+
+      # -----------------------------------------------------------------------
       # Benchmark Settings
       # -----------------------------------------------------------------------
       benchmark_settings:
         type: group
         label: Benchmark Settings
+        hidden: ${{ inputs.workload_settings.workload_type != 'benchmark' }}
+        ignore: ${{ .hidden }}
         items:
           num_tasks:
             type: dropdown

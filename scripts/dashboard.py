@@ -24,8 +24,9 @@ state = {
     # Cluster topology
     "nodes": {},          # node_ip -> {site_id, num_cpus, cluster_name, scheduler_type, joined_at}
     "ray_head_ip": os.environ.get("RAY_HEAD_IP", ""),
-    # Benchmark
-    "phase": "waiting",   # waiting, throughput, compute, scaling, complete
+    # Workload
+    "workload_type": "benchmark",  # "benchmark" or "fractal"
+    "phase": "waiting",   # waiting, throughput, compute, scaling, rendering, complete
     "tasks": [],          # [{task_id, type, node_ip, site_id, duration_ms, result}]
     "total_planned": 0,
     "total_completed": 0,
@@ -36,12 +37,17 @@ state = {
     "throughput_results": None,   # {tasks_per_sec, site_breakdown}
     "compute_results": [],        # [{node_ip, site_id, gflops, matrix_size}]
     "scaling_results": None,      # {single_site_tps, dual_site_tps, speedup}
+    # Fractal state
+    "grid_size": 0,
+    "image_size": 0,
+    "fractal_tiles": {},  # (tx, ty) string key -> tile data
 }
 connected_ws: list[WebSocket] = []
 
 
 def _reset_state():
     state["nodes"] = {}
+    state["workload_type"] = "benchmark"
     state["phase"] = "waiting"
     state["tasks"] = []
     state["total_planned"] = 0
@@ -51,6 +57,9 @@ def _reset_state():
     state["throughput_results"] = None
     state["compute_results"] = []
     state["scaling_results"] = None
+    state["grid_size"] = 0
+    state["image_size"] = 0
+    state["fractal_tiles"] = {}
 
 
 def _compute_throughput_history():
@@ -104,9 +113,12 @@ async def set_config(request: Request):
     """Set benchmark configuration. Resets state."""
     body = await request.json()
     _reset_state()
-    state["total_planned"] = body.get("total_tasks", 0)
+    state["workload_type"] = body.get("workload_type", "benchmark")
+    state["total_planned"] = body.get("total_tasks", body.get("total_tiles", 0))
     state["ray_head_ip"] = body.get("ray_head_ip", state["ray_head_ip"])
-    await _broadcast({"type": "config", **body})
+    state["grid_size"] = body.get("grid_size", 0)
+    state["image_size"] = body.get("image_size", 0)
+    await _broadcast({"type": "config", **body, "workload_type": state["workload_type"]})
     return {"status": "ok"}
 
 
@@ -233,6 +245,78 @@ async def receive_task(request: Request):
     return {"status": "ok", "total_completed": state["total_completed"]}
 
 
+@app.post("/api/tile")
+async def receive_tile(request: Request):
+    """Receive a completed fractal tile."""
+    tile = await request.json()
+    now = time.time()
+
+    if state["start_time"] is None:
+        state["start_time"] = now
+
+    tx = tile.get("tile_x", 0)
+    ty = tile.get("tile_y", 0)
+    key = f"{tx},{ty}"
+    state["fractal_tiles"][key] = {
+        "tile_x": tx,
+        "tile_y": ty,
+        "site_id": tile.get("site_id", "unknown"),
+        "render_time_ms": tile.get("render_time_ms", 0),
+        "png_b64": tile.get("png_b64", ""),
+        "cluster_name": tile.get("cluster_name", ""),
+        "scheduler_type": tile.get("scheduler_type", ""),
+        "node_ip": tile.get("node_ip", "unknown"),
+    }
+    state["total_completed"] += 1
+
+    site_id = tile.get("site_id", "unknown")
+    node_ip = tile.get("node_ip", "unknown")
+
+    # Register node if not already known
+    if node_ip not in state["nodes"]:
+        state["nodes"][node_ip] = {
+            "site_id": site_id,
+            "num_cpus": 1,
+            "cluster_name": tile.get("cluster_name", ""),
+            "scheduler_type": tile.get("scheduler_type", ""),
+            "joined_at": now,
+        }
+
+    # Update site stats
+    if site_id not in state["site_stats"]:
+        state["site_stats"][site_id] = {
+            "task_count": 0,
+            "total_ms": 0,
+            "cluster_name": tile.get("cluster_name", ""),
+            "scheduler_type": tile.get("scheduler_type", ""),
+            "num_workers": 0,
+            "node_ips": [],
+        }
+    stats = state["site_stats"][site_id]
+    stats["task_count"] += 1
+    stats["total_ms"] += tile.get("render_time_ms", 0)
+    if tile.get("cluster_name"):
+        stats["cluster_name"] = tile["cluster_name"]
+    if tile.get("scheduler_type"):
+        stats["scheduler_type"] = tile["scheduler_type"]
+    if node_ip not in stats["node_ips"]:
+        stats["node_ips"].append(node_ip)
+
+    await _broadcast({
+        "type": "tile",
+        "tile_x": tx,
+        "tile_y": ty,
+        "site_id": site_id,
+        "render_time_ms": tile.get("render_time_ms", 0),
+        "png_b64": tile.get("png_b64", ""),
+        "completed": state["total_completed"],
+        "total": state["total_planned"],
+        "site_stats": _safe_site_stats(),
+        "elapsed_s": round(now - state["start_time"], 1) if state["start_time"] else 0,
+    })
+    return {"status": "ok", "total_completed": state["total_completed"]}
+
+
 @app.post("/api/results")
 async def receive_results(request: Request):
     """Receive benchmark phase results."""
@@ -262,9 +346,10 @@ def _safe_site_stats():
 @app.get("/api/state")
 async def get_state():
     """Return full state for late-joining browsers."""
-    return {
+    result = {
         "nodes": state["nodes"],
         "ray_head_ip": state["ray_head_ip"],
+        "workload_type": state["workload_type"],
         "phase": state["phase"],
         "total_completed": state["total_completed"],
         "total_planned": state["total_planned"],
@@ -275,6 +360,11 @@ async def get_state():
         "elapsed_s": round(time.time() - state["start_time"], 1) if state["start_time"] else 0,
         "throughput_history": _compute_throughput_history(),
     }
+    if state["workload_type"] == "fractal":
+        result["grid_size"] = state["grid_size"]
+        result["image_size"] = state["image_size"]
+        result["fractal_tiles"] = state["fractal_tiles"]
+    return result
 
 
 @app.api_route("/ray/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
@@ -314,10 +404,13 @@ async def websocket_endpoint(ws: WebSocket):
             "type": "init",
             "nodes": state["nodes"],
             "ray_head_ip": state["ray_head_ip"],
+            "workload_type": state["workload_type"],
             "phase": state["phase"],
             "total_completed": state["total_completed"],
             "total_planned": state["total_planned"],
             "site_stats": _safe_site_stats(),
+            "grid_size": state["grid_size"],
+            "image_size": state["image_size"],
         }))
         while True:
             await ws.receive_text()
