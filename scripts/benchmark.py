@@ -260,10 +260,23 @@ def run_fractal_mode(args, dashboard_url, ray_head_ip, alive_nodes, site_metadat
 
     # Collect results and POST each tile to dashboard
     print(f"Collecting results...")
+    # Re-fetch site metadata now that workers have had time to register
+    fresh_meta = fetch_site_metadata(dashboard_url)
+    for k, v in fresh_meta.items():
+        if k not in site_metadata or not site_metadata[k].get("cluster_name"):
+            site_metadata[k] = v
     completed = 0
+    last_meta_refresh = time.time()
     for future in futures:
         try:
             result = ray.get(future, timeout=300)
+            # Periodically re-fetch metadata for late-registering workers
+            if time.time() - last_meta_refresh > 5:
+                fresh = fetch_site_metadata(dashboard_url)
+                for k, v in fresh.items():
+                    if k not in site_metadata or not site_metadata[k].get("cluster_name"):
+                        site_metadata[k] = v
+                last_meta_refresh = time.time()
             # Enrich with cluster metadata
             sid = result.get("site_id", "")
             if sid in site_metadata:
