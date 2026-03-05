@@ -236,6 +236,12 @@ def main():
 
     t1_start = time.time()
     futures = [throughput_task.remote(i, ray_head_ip) for i in range(num_tasks)]
+    # Re-fetch site metadata in case workers registered after initial fetch
+    fresh_meta = fetch_site_metadata(dashboard_url)
+    for k, v in fresh_meta.items():
+        if k not in site_metadata or not site_metadata[k].get("cluster_name"):
+            site_metadata[k] = v
+    print(f"Site metadata (updated): {json.dumps(site_metadata, indent=2)}")
     completed = run_phase("throughput", futures, dashboard_url, ray_head_ip, site_metadata)
     t1_duration = time.time() - t1_start
     tasks_per_sec = completed / t1_duration if t1_duration > 0 else 0
