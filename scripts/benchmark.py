@@ -42,7 +42,7 @@ def detect_site(ray_head_ip):
 # Ray Remote Tasks
 # =============================================================================
 
-@ray.remote
+@ray.remote(scheduling_strategy="SPREAD")
 def throughput_task(task_id, ray_head_ip):
     """Task for measuring scheduling throughput across nodes."""
     start = time.time()
@@ -61,7 +61,7 @@ def throughput_task(task_id, ray_head_ip):
     }
 
 
-@ray.remote
+@ray.remote(scheduling_strategy="SPREAD")
 def compute_task(task_id, matrix_size, ray_head_ip):
     """CPU compute task — matrix multiplication."""
     start = time.time()
@@ -89,7 +89,7 @@ def compute_task(task_id, matrix_size, ray_head_ip):
     }
 
 
-@ray.remote
+@ray.remote(scheduling_strategy="SPREAD")
 def scaling_task(task_id, ray_head_ip):
     """Medium task for scaling test."""
     start = time.time()
