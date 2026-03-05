@@ -27,13 +27,23 @@ def post_json(url, data):
 
 
 def detect_site(ray_head_ip):
-    """Determine site based on whether this node is the Ray head."""
+    """Determine site based on node IP.
+
+    Site mapping:
+      - ray_head_ip -> site-1 (head node)
+      - 127.0.0.2  -> site-2 (first remote worker)
+      - 127.0.0.3  -> site-3 (second remote worker)
+      - 127.0.0.X  -> site-X (Xth site, where X = last octet)
+    """
     try:
         node_ip = ray.util.get_node_ip_address()
     except Exception:
         node_ip = socket.gethostbyname(socket.gethostname())
     if node_ip == ray_head_ip:
         return "site-1", node_ip
+    elif node_ip.startswith("127.0.0."):
+        site_index = int(node_ip.split(".")[-1])
+        return f"site-{site_index}", node_ip
     else:
         return "site-2", node_ip
 
