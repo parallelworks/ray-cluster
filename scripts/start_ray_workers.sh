@@ -90,8 +90,20 @@ fi
 # =============================================================================
 ray stop --force 2>/dev/null || true
 
+# Fixed ports for bidirectional tunnel — must match setup_tunnel.sh
+WORKER_RAYLET_PORT=16380
+WORKER_OBJ_PORT=16381
+
+# Use 127.0.0.1 as node IP so the head reaches this worker via the forward tunnel
+# (the head connects to 127.0.0.1:16380 which tunnels to this machine's localhost:16380)
 echo "Connecting to Ray head at ${RAY_HEAD_ADDRESS}..."
-ray start --address="${RAY_HEAD_ADDRESS}"
+echo "  Node IP advertised: 127.0.0.1 (via SSH forward tunnel)"
+echo "  Raylet port: ${WORKER_RAYLET_PORT}"
+echo "  Object manager port: ${WORKER_OBJ_PORT}"
+ray start --address="${RAY_HEAD_ADDRESS}" \
+    --node-ip-address=127.0.0.1 \
+    --node-manager-port=${WORKER_RAYLET_PORT} \
+    --object-manager-port=${WORKER_OBJ_PORT}
 
 echo "Ray worker started!"
 ray status 2>/dev/null || echo "Note: ray status may not work on worker node"
