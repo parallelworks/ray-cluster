@@ -76,10 +76,14 @@ print('SLURM_TIME=' + slurm.get('time', '00:05:00'))
             fi
             ${PY} -c "import fastapi" 2>/dev/null || {
                 echo "Installing dashboard dependencies..."
-                if command -v uv &>/dev/null || [ -x "$HOME/.local/bin/uv" ] || [ -x "$HOME/.cargo/bin/uv" ]; then
-                    UV_CMD=$(command -v uv 2>/dev/null || echo "$HOME/.local/bin/uv")
-                    [ -x "$UV_CMD" ] || UV_CMD="$HOME/.cargo/bin/uv"
-                    $UV_CMD pip install --python "${PY}" fastapi uvicorn websockets httpx 2>&1
+                UV_CMD=""
+                for uv_path in "${JOB_DIR}/.uv/uv" "$HOME/.local/bin/uv" "$HOME/.cargo/bin/uv"; do
+                    if [ -x "${uv_path}" ]; then UV_CMD="${uv_path}"; break; fi
+                done
+                if [ -z "${UV_CMD}" ]; then command -v uv &>/dev/null && UV_CMD="uv"; fi
+
+                if [ -n "${UV_CMD}" ]; then
+                    ${UV_CMD} pip install --python "${PY}" fastapi uvicorn websockets httpx 2>&1
                 else
                     ${PY} -m pip install --quiet fastapi uvicorn websockets httpx 2>&1
                 fi
@@ -138,10 +142,14 @@ echo "Python: ${PYTHON_CMD}"
 # Install dashboard dependencies
 ${PYTHON_CMD} -c "import fastapi" 2>/dev/null || {
     echo "Installing dashboard dependencies..."
-    if command -v uv &>/dev/null || [ -x "$HOME/.local/bin/uv" ] || [ -x "$HOME/.cargo/bin/uv" ]; then
-        UV_CMD=$(command -v uv 2>/dev/null || echo "$HOME/.local/bin/uv")
-        [ -x "$UV_CMD" ] || UV_CMD="$HOME/.cargo/bin/uv"
-        $UV_CMD pip install --python "${PYTHON_CMD}" fastapi uvicorn websockets httpx 2>&1 || {
+    UV_CMD=""
+    for uv_path in "${JOB_DIR}/.uv/uv" "$HOME/.local/bin/uv" "$HOME/.cargo/bin/uv"; do
+        if [ -x "${uv_path}" ]; then UV_CMD="${uv_path}"; break; fi
+    done
+    if [ -z "${UV_CMD}" ]; then command -v uv &>/dev/null && UV_CMD="uv"; fi
+
+    if [ -n "${UV_CMD}" ]; then
+        ${UV_CMD} pip install --python "${PYTHON_CMD}" fastapi uvicorn websockets httpx 2>&1 || {
             echo "[ERROR] Failed to install dashboard dependencies via uv"
             exit 1
         }
