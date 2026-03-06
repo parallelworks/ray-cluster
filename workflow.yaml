@@ -236,7 +236,7 @@ jobs:
             type: boolean
             default: false
             label: Schedule Job?
-            hidden: ${{ inputs.workers.[index].resource.schedulerType == '' }}
+            hidden: ${{ inputs.workers.[index].resource.schedulerType != 'slurm' && inputs.workers.[index].resource.schedulerType != 'pbs' }}
             ignore: ${{ .hidden }}
             tooltip: |
               Yes - Workers are submitted to the scheduler using sbatch, qsub, etc.
