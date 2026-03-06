@@ -174,12 +174,25 @@ if [ -z "${HEAD_IP}" ] || [[ "${HEAD_IP}" == 127.* ]]; then
 fi
 echo "Ray head IP: ${HEAD_IP}"
 
+# Pin BLAS/OpenMP to 1 thread per process so Ray tasks don't oversubscribe cores.
+# Each Ray task uses 1 CPU slot; parallelism comes from Ray scheduling, not BLAS threading.
+export OMP_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+export OPENBLAS_NUM_THREADS=1
+
 echo "Starting Ray head node..."
-ray start --head \
-    --port=${RAY_PORT} \
-    --node-ip-address=${HEAD_IP} \
-    --dashboard-host=0.0.0.0 \
+RAY_START_ARGS=(
+    --head
+    --port=${RAY_PORT}
+    --node-ip-address=${HEAD_IP}
+    --dashboard-host=0.0.0.0
     --dashboard-port=8265
+)
+if [ -n "${RAY_NUM_CPUS}" ]; then
+    RAY_START_ARGS+=(--num-cpus=${RAY_NUM_CPUS})
+    echo "Ray CPUs: ${RAY_NUM_CPUS} (user-configured)"
+fi
+ray start "${RAY_START_ARGS[@]}"
 
 # Verify Ray GCS is listening
 echo "Checking Ray GCS port binding..."

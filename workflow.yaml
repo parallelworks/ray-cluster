@@ -40,6 +40,10 @@ jobs:
           set -e
           export RAY_VERSION="${{ inputs.ray_settings.ray_version }}"
           export TARGETS_JSON='${{ inputs.targets }}'
+          NUM_CPUS_SETTING="${{ inputs.ray_settings.num_cpus }}"
+          if [ "${NUM_CPUS_SETTING}" != "auto" ]; then
+            export RAY_NUM_CPUS="${NUM_CPUS_SETTING}"
+          fi
           bash scripts/start_ray_head.sh
 
   # =============================================================================
@@ -320,6 +324,25 @@ jobs:
                 label: "2.39.0"
               - value: "2.38.0"
                 label: "2.38.0"
+
+          num_cpus:
+            type: dropdown
+            label: CPUs per Node
+            tooltip: Number of CPUs Ray uses per node (limits concurrent tasks). Auto uses all available cores.
+            default: "auto"
+            options:
+              - value: "auto"
+                label: "Auto (all cores)"
+              - value: "4"
+                label: "4 CPUs"
+              - value: "8"
+                label: "8 CPUs"
+              - value: "16"
+                label: "16 CPUs"
+              - value: "32"
+                label: "32 CPUs"
+              - value: "64"
+                label: "64 CPUs"
 
       # -----------------------------------------------------------------------
       # Workload Settings

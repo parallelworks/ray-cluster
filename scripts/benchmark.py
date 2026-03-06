@@ -12,6 +12,12 @@ import urllib.request
 import zlib
 from math import log2
 
+# Pin BLAS/OpenMP to 1 thread per process — parallelism comes from Ray, not BLAS.
+# Must be set before numpy import.
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+
 import numpy as np
 import ray
 
