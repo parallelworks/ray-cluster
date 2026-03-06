@@ -42,6 +42,8 @@ state = {
     "grid_size": 0,
     "image_size": 0,
     "fractal_tiles": {},  # (tx, ty) string key -> tile data
+    # Pending sites (dispatched but workers not yet connected)
+    "pending_sites": {},  # site_id -> {cluster_name, scheduler_type}
 }
 connected_ws = []  # list of WebSocket
 
@@ -62,6 +64,7 @@ def _reset_state():
     state["grid_size"] = 0
     state["image_size"] = 0
     state["fractal_tiles"] = {}
+    state["pending_sites"] = {}
 
 
 def _compute_throughput_history():
@@ -141,6 +144,24 @@ async def register_head(request: Request):
     return {"status": "ok"}
 
 
+@app.post("/api/worker/pending")
+async def worker_pending(request: Request):
+    """Mark a site as pending (dispatched but workers not yet connected)."""
+    body = await request.json()
+    site_id = body["site_id"]
+    state["pending_sites"][site_id] = {
+        "cluster_name": body.get("cluster_name", ""),
+        "scheduler_type": body.get("scheduler_type", ""),
+    }
+    await _broadcast({
+        "type": "pending_site",
+        "site_id": site_id,
+        "cluster_name": body.get("cluster_name", ""),
+        "scheduler_type": body.get("scheduler_type", ""),
+    })
+    return {"status": "ok"}
+
+
 @app.post("/api/worker")
 async def register_worker(request: Request):
     """Register a Ray worker node."""
@@ -155,6 +176,9 @@ async def register_worker(request: Request):
         "scheduler_type": body.get("scheduler_type", ""),
         "joined_at": time.time(),
     }
+
+    # Remove from pending — site is now connected
+    state["pending_sites"].pop(site_id, None)
 
     # Initialize site stats if needed
     if site_id not in state["site_stats"]:
@@ -184,6 +208,7 @@ async def register_worker(request: Request):
         "scheduler_type": body.get("scheduler_type", ""),
         "nodes": state["nodes"],
         "site_stats": _safe_site_stats(),
+        "pending_sites": state["pending_sites"],
     })
     return {"status": "ok"}
 
@@ -379,6 +404,7 @@ async def get_state():
         "scaling_results": state["scaling_results"],
         "elapsed_s": round(time.time() - state["start_time"], 1) if state["start_time"] else 0,
         "throughput_history": _compute_throughput_history(),
+        "pending_sites": state["pending_sites"],
     }
     if state["workload_type"] == "fractal":
         result["grid_size"] = state["grid_size"]
@@ -432,6 +458,7 @@ async def websocket_endpoint(ws: WebSocket):
             "site_stats": _safe_site_stats(),
             "grid_size": state["grid_size"],
             "image_size": state["image_size"],
+            "pending_sites": state["pending_sites"],
         }))
         while True:
             await ws.receive_text()

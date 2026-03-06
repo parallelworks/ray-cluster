@@ -823,6 +823,11 @@ for i in $(seq 0 $((NUM_WORKERS - 1))); do
         # Same resource as head — dispatch via local SLURM (no tunnels)
         echo ""
         echo "[site-1] Local worker site: ${site_name} (${slurm_nodes} node(s))"
+        # Notify dashboard this site is pending
+        curl -s -X POST "http://localhost:${DASHBOARD_PORT}/api/worker/pending" \
+            -H "Content-Type: application/json" \
+            -d "{\"site_id\": \"site-1\", \"cluster_name\": \"${site_name}\", \"scheduler_type\": \"${scheduler_type}\"}" \
+            >/dev/null 2>&1 || true
         dispatch_local_workers "${i}" "${site_name}" "${scheduler_type}" \
             "${slurm_partition}" "${slurm_account}" "${slurm_qos}" "${slurm_time}" \
             "${slurm_nodes}"
@@ -832,6 +837,11 @@ for i in $(seq 0 $((NUM_WORKERS - 1))); do
         # Different resource — dispatch via SSH tunnel
         echo ""
         echo "[site-${remote_site_index}] Remote worker site: ${site_name} (${site_ip})"
+        # Notify dashboard this site is pending
+        curl -s -X POST "http://localhost:${DASHBOARD_PORT}/api/worker/pending" \
+            -H "Content-Type: application/json" \
+            -d "{\"site_id\": \"site-${remote_site_index}\", \"cluster_name\": \"${site_name}\", \"scheduler_type\": \"${scheduler_type}\"}" \
+            >/dev/null 2>&1 || true
         dispatch_worker "$((remote_site_index - 1))" "${site_name}" "${site_ip}" \
             "${use_scheduler}" "${scheduler_type}" \
             "${slurm_partition}" "${slurm_account}" "${slurm_qos}" "${slurm_time}" \

@@ -484,15 +484,18 @@ function getSiteColor(siteId) {
 
 function updateHeaderLegend() {
   const legend = document.getElementById('header-legend');
-  const siteIds = Object.keys(siteStats);
-  if (siteIds.length === 0) return;
-  legend.innerHTML = siteIds.map(siteId => {
-    const s = siteStats[siteId];
+  const connectedIds = Object.keys(siteStats);
+  const pendingIds = Object.keys(pendingSites).filter(sid => !siteStats[sid]);
+  const allIds = [...connectedIds, ...pendingIds];
+  if (allIds.length === 0) return;
+  legend.innerHTML = allIds.map(siteId => {
+    const s = siteStats[siteId] || pendingSites[siteId];
     const color = getSiteColor(siteId);
     const label = s.cluster_name || siteId;
+    const isPending = !siteStats[siteId];
     return `<div class="legend-item">
-      <div class="legend-dot" style="background:${color}"></div>
-      <span>${label}</span>
+      <div class="legend-dot" style="background:${isPending ? 'transparent' : color}; ${isPending ? 'border:1px dashed ' + color : ''}"></div>
+      <span${isPending ? ' style="opacity:0.6"' : ''}>${label}${isPending ? ' ...' : ''}</span>
     </div>`;
   }).join('');
 }
@@ -507,6 +510,7 @@ let totalCompleted = 0;
 let totalPlanned = 0;
 let startTime = null;
 const siteStats = {};
+const pendingSites = {}; // site_id -> {cluster_name, scheduler_type}
 const rayNodes = {};  // node_ip -> {site_id, num_cpus, ...}
 let headNode = {};    // {ip, cluster_name, scheduler_type} — coordinator hub
 const throughputHistory = [];
@@ -728,7 +732,9 @@ function drawTopology() {
   g.fillStyle = '#0a0e17';
   g.fillRect(0, 0, w, h);
 
-  const siteIds = Object.keys(siteStats);
+  const connectedIds = Object.keys(siteStats);
+  const pendingIds = Object.keys(pendingSites).filter(sid => !siteStats[sid]);
+  const siteIds = [...connectedIds, ...pendingIds];
   if (siteIds.length === 0) {
     g.fillStyle = '#6b7a90';
     g.font = '13px Inter, system-ui, sans-serif';
@@ -767,7 +773,8 @@ function drawTopology() {
   const siteY = cy + 90;
 
   siteIds.forEach((siteId, i) => {
-    const s = siteStats[siteId];
+    const isPending = !siteStats[siteId];
+    const s = siteStats[siteId] || pendingSites[siteId] || {};
     const color = getSiteColor(siteId);
     const nodeX = w / 2 + (i - (siteIds.length - 1) / 2) * siteSpacing;
 
@@ -775,95 +782,117 @@ function drawTopology() {
     g.beginPath();
     g.moveTo(cx, cy + hubRadius);
     g.lineTo(nodeX, siteY - 26);
-    g.strokeStyle = color + '44';
+    if (isPending) {
+      g.setLineDash([4, 4]);
+      g.strokeStyle = color + '33';
+    } else {
+      g.strokeStyle = color + '44';
+    }
     g.lineWidth = 2;
     g.stroke();
+    g.setLineDash([]);
 
     // Animated data flow dots
     const progress = (Date.now() % 2000) / 2000;
-    if ((s.task_count || 0) > 0 && totalCompleted < totalPlanned) {
+    if (isPending || ((s.task_count || 0) > 0 && totalCompleted < totalPlanned)) {
       const dotX = cx + (nodeX - cx) * progress;
       const dotY = (cy + hubRadius) + (siteY - 26 - cy - hubRadius) * progress;
       g.beginPath();
       g.arc(dotX, dotY, 3, 0, Math.PI * 2);
-      g.fillStyle = color;
+      g.fillStyle = isPending ? color + '88' : color;
       g.fill();
     }
 
     // Site node circle
     g.beginPath();
     g.arc(nodeX, siteY, 24, 0, Math.PI * 2);
-    g.fillStyle = color + '18';
-    g.fill();
-    g.strokeStyle = color;
+    if (isPending) {
+      g.fillStyle = color + '08';
+      g.fill();
+      g.setLineDash([4, 4]);
+      g.strokeStyle = color + '55';
+    } else {
+      g.fillStyle = color + '18';
+      g.fill();
+      g.strokeStyle = color;
+    }
     g.lineWidth = 2;
     g.stroke();
+    g.setLineDash([]);
 
     // Site label
     const name = s.cluster_name || siteId;
     const shortName = name.length > 12 ? name.slice(0, 11) + '\u2026' : name;
-    g.fillStyle = color;
+    g.fillStyle = isPending ? color + '88' : color;
     g.font = 'bold 9px Inter, system-ui, sans-serif';
     g.textAlign = 'center';
     g.textBaseline = 'middle';
     g.fillText(shortName, nodeX, siteY - 6);
 
-    // Task count in site circle
-    g.fillStyle = '#e0e6f0';
-    g.font = 'bold 12px Inter, system-ui, sans-serif';
-    g.fillText(String(s.task_count || 0), nodeX, siteY + 9);
+    if (isPending) {
+      // "connecting..." label instead of task count
+      g.fillStyle = color + '66';
+      g.font = '8px Inter, system-ui, sans-serif';
+      g.fillText('connecting...', nodeX, siteY + 9);
+      // No compute nodes drawn for pending
+    } else {
+      // Task count in site circle
+      g.fillStyle = '#e0e6f0';
+      g.font = 'bold 12px Inter, system-ui, sans-serif';
+      g.fillText(String(s.task_count || 0), nodeX, siteY + 9);
 
-    // Draw individual compute nodes below the site
-    const nodeIps = s.node_ips || [];
-    const numNodes = Math.max(nodeIps.length, 1);
-    const nodeRadius = 14;
-    const nodeSpacingH = Math.min(50, (siteSpacing - 20) / numNodes);
-    const nodesY = siteY + 60;
+      // Draw individual compute nodes below the site
+      const nodeIps = s.node_ips || [];
+      const numNodes = Math.max(nodeIps.length, 1);
+      const nodeRadius = 14;
+      const nodeSpacingH = Math.min(50, (siteSpacing - 20) / numNodes);
+      const nodesY = siteY + 60;
 
-    if (nodeIps.length > 0) {
-      nodeIps.forEach((ip, ni) => {
-        const nx = nodeX + (ni - (nodeIps.length - 1) / 2) * nodeSpacingH;
-        const nodeData = rayNodes[ip] || {};
+      if (nodeIps.length > 0) {
+        nodeIps.forEach((ip, ni) => {
+          const nx = nodeX + (ni - (nodeIps.length - 1) / 2) * nodeSpacingH;
+          const nodeData = rayNodes[ip] || {};
 
-        // Line from site to node
-        g.beginPath();
-        g.moveTo(nodeX, siteY + 24);
-        g.lineTo(nx, nodesY - nodeRadius);
-        g.strokeStyle = color + '33';
-        g.lineWidth = 1.5;
-        g.stroke();
+          // Line from site to node
+          g.beginPath();
+          g.moveTo(nodeX, siteY + 24);
+          g.lineTo(nx, nodesY - nodeRadius);
+          g.strokeStyle = color + '33';
+          g.lineWidth = 1.5;
+          g.stroke();
 
-        // Node circle
-        g.beginPath();
-        g.arc(nx, nodesY, nodeRadius, 0, Math.PI * 2);
-        g.fillStyle = color + '12';
-        g.fill();
-        g.strokeStyle = color + '88';
-        g.lineWidth = 1.5;
-        g.stroke();
+          // Node circle
+          g.beginPath();
+          g.arc(nx, nodesY, nodeRadius, 0, Math.PI * 2);
+          g.fillStyle = color + '12';
+          g.fill();
+          g.strokeStyle = color + '88';
+          g.lineWidth = 1.5;
+          g.stroke();
 
-        // CPU count in node
-        const cpus = nodeData.num_cpus || '?';
-        g.fillStyle = color + 'cc';
-        g.font = '8px Inter, system-ui, sans-serif';
+          // CPU count in node
+          const cpus = nodeData.num_cpus || '?';
+          g.fillStyle = color + 'cc';
+          g.font = '8px Inter, system-ui, sans-serif';
+          g.textAlign = 'center';
+          g.textBaseline = 'middle';
+          g.fillText(cpus + ' CPU', nx, nodesY);
+        });
+
+        // Summary below nodes
+        g.fillStyle = '#6b7a90';
+        g.font = '9px Inter, system-ui, sans-serif';
         g.textAlign = 'center';
         g.textBaseline = 'middle';
-        g.fillText(cpus + ' CPU', nx, nodesY);
-      });
-
-      // Summary below nodes
-      g.fillStyle = '#6b7a90';
-      g.font = '9px Inter, system-ui, sans-serif';
-      g.textAlign = 'center';
-      g.textBaseline = 'middle';
-      g.fillText(nodeIps.length + (nodeIps.length === 1 ? ' node' : ' nodes') + ' \u00b7 ' + (s.task_count || 0) + ' ' + unitLabel, nodeX, nodesY + nodeRadius + 14);
-    } else {
-      // No node data yet
-      g.fillStyle = '#6b7a90';
-      g.font = '9px Inter, system-ui, sans-serif';
-      g.textAlign = 'center';
-      g.textBaseline = 'middle';
-      g.fillText((s.task_count || 0) + ' ' + unitLabel, nodeX, siteY + 38);
+        g.fillText(nodeIps.length + (nodeIps.length === 1 ? ' node' : ' nodes') + ' \u00b7 ' + (s.task_count || 0) + ' ' + unitLabel, nodeX, nodesY + nodeRadius + 14);
+      } else {
+        // No node data yet
+        g.fillStyle = '#6b7a90';
+        g.font = '9px Inter, system-ui, sans-serif';
+        g.textAlign = 'center';
+        g.textBaseline = 'middle';
+        g.fillText((s.task_count || 0) + ' ' + unitLabel, nodeX, siteY + 38);
+      }
     }
   });
 }
@@ -1057,7 +1086,10 @@ function updateStats() {
     rendering: 'Rendering',
     complete: 'Complete',
   };
-  if (phase === 'waiting') {
+  if (phase === 'waiting' && Object.keys(pendingSites).length > 0 && Object.keys(siteStats).length === 0) {
+    badge.className = 'status-badge running';
+    badge.innerHTML = '<div class="pulse" style="background:currentColor"></div> Connecting';
+  } else if (phase === 'waiting') {
     badge.className = 'status-badge waiting';
     badge.innerHTML = '<div class="pulse" style="background:currentColor"></div> ' + (phaseLabels[phase] || phase);
   } else if (phase === 'complete') {
@@ -1068,12 +1100,15 @@ function updateStats() {
     badge.innerHTML = '<div class="pulse" style="background:currentColor"></div> ' + (phaseLabels[phase] || phase);
   }
 
-  // Update site cards
+  // Update site cards — show both connected and pending sites
   const container = document.getElementById('sites-container');
-  const siteIds = Object.keys(siteStats);
-  if (siteIds.length > 0) {
+  const connectedIds = Object.keys(siteStats);
+  const pendingIds = Object.keys(pendingSites).filter(sid => !siteStats[sid]);
+  const allSiteIds = [...connectedIds, ...pendingIds];
+  if (allSiteIds.length > 0) {
     container.innerHTML = '';
-    siteIds.forEach((siteId, idx) => {
+    let idx = 0;
+    connectedIds.forEach(siteId => {
       const s = siteStats[siteId];
       const color = getSiteColor(siteId);
       const name = s.cluster_name || siteId;
@@ -1092,6 +1127,25 @@ function updateStats() {
           </div>
           <div class="site-count" style="color:${color}">${s.task_count || 0}</div>
         </div>`;
+      idx++;
+    });
+    pendingIds.forEach(siteId => {
+      const p = pendingSites[siteId];
+      const color = getSiteColor(siteId);
+      const name = p.cluster_name || siteId;
+      const scheduler = p.scheduler_type ? ` (${p.scheduler_type})` : '';
+      const siteLabel = `Site ${idx + 1}`;
+      container.innerHTML += `
+        <div class="site-card" style="opacity: 0.6; border: 1px dashed ${color}44;">
+          <div class="site-icon" style="background:${color}10; color:${color}88;">
+            <div class="pulse" style="background:${color}; width:10px; height:10px; border-radius:50%;"></div>
+          </div>
+          <div class="site-info">
+            <div class="site-name" style="color:${color}aa;">${name}${scheduler}</div>
+            <div class="site-detail" style="color:${color}88;">${siteLabel} &middot; connecting...</div>
+          </div>
+        </div>`;
+      idx++;
     });
     updateHeaderLegend();
   }
@@ -1161,6 +1215,13 @@ function connect() {
   ws.onmessage = (evt) => {
     const msg = JSON.parse(evt.data);
 
+    if (msg.type === 'pending_site') {
+      pendingSites[msg.site_id] = {cluster_name: msg.cluster_name, scheduler_type: msg.scheduler_type};
+      getSiteColor(msg.site_id);
+      if (activeTab === 'cluster') drawTopology();
+      updateStats();
+      return;
+    }
     if (msg.type === 'init') {
       totalCompleted = msg.total_completed || 0;
       totalPlanned = msg.total_planned || 0;
@@ -1168,6 +1229,15 @@ function connect() {
       mergeSiteStats(msg.site_stats);
       Object.assign(rayNodes, msg.nodes || {});
       if (msg.head_node) headNode = msg.head_node;
+      // Load pending sites
+      if (msg.pending_sites) {
+        Object.keys(msg.pending_sites).forEach(sid => {
+          if (!siteStats[sid]) {
+            pendingSites[sid] = msg.pending_sites[sid];
+            getSiteColor(sid);
+          }
+        });
+      }
 
       if (msg.workload_type) {
         workloadType = msg.workload_type;
@@ -1188,6 +1258,15 @@ function connect() {
           mergeSiteStats(data.site_stats);
           Object.assign(rayNodes, data.nodes || {});
           if (data.head_node) headNode = data.head_node;
+          // Load pending sites for late-joiners
+          if (data.pending_sites) {
+            Object.keys(data.pending_sites).forEach(sid => {
+              if (!siteStats[sid]) {
+                pendingSites[sid] = data.pending_sites[sid];
+                getSiteColor(sid);
+              }
+            });
+          }
 
           if (data.workload_type === 'fractal') {
             workloadType = 'fractal';
@@ -1237,6 +1316,13 @@ function connect() {
     } else if (msg.type === 'worker') {
       Object.assign(rayNodes, msg.nodes || {});
       mergeSiteStats(msg.site_stats);
+      // Remove from pending — site is now connected
+      if (msg.site_id) delete pendingSites[msg.site_id];
+      if (msg.pending_sites) {
+        Object.keys(pendingSites).forEach(sid => {
+          if (!msg.pending_sites[sid]) delete pendingSites[sid];
+        });
+      }
       if (activeTab === 'cluster') drawTopology();
       updateStats();
     } else if (msg.type === 'phase') {
@@ -1290,7 +1376,7 @@ function connect() {
 // --- Topology animation loop ---
 let topoAnimFrame = null;
 function animateTopology() {
-  if (activeTab === 'cluster' && totalCompleted < totalPlanned && totalCompleted > 0) {
+  if (activeTab === 'cluster' && (Object.keys(pendingSites).length > 0 || (totalCompleted < totalPlanned && totalCompleted > 0))) {
     drawTopology();
   }
   topoAnimFrame = requestAnimationFrame(animateTopology);
