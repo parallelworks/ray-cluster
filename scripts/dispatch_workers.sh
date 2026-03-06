@@ -176,6 +176,8 @@ if [ -f "\${JOB_DIR}/.venv/bin/activate" ]; then
 fi
 
 ray stop --force 2>/dev/null || true
+rm -rf /tmp/ray/session_* 2>/dev/null || true
+sleep 1
 
 WORKER_IP=\$(hostname -I 2>/dev/null | awk '{print \$1}')
 NUM_CPUS=\${RAY_NUM_CPUS_SETTING:-\$(nproc 2>/dev/null || echo 1)}
@@ -497,6 +499,8 @@ except:
 done
 
 ray stop --force 2>/dev/null || true
+rm -rf /tmp/ray/session_* 2>/dev/null || true
+sleep 1
 
 echo "Starting Ray worker: address=${LOGIN_HOST}:${PROXY_RAY_PORT} ip=${MY_TUNNEL_IP}"
 RAY_ARGS="--address=${LOGIN_HOST}:${PROXY_RAY_PORT}"
@@ -688,8 +692,10 @@ if [ \${attempt} -gt 60 ]; then
     exit 1
 fi
 
-# Stop any existing Ray and join cluster
+# Stop any existing Ray and clean up stale sessions
 ray stop --force 2>/dev/null || true
+rm -rf /tmp/ray/session_* 2>/dev/null || true
+sleep 1
 
 # Start a proxy that listens on all interfaces (0.0.0.0) and forwards to the
 # SSH tunnel at 127.0.0.1. Ray's GCS client resolves loopback to the machine's
