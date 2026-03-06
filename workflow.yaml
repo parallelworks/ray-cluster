@@ -211,6 +211,7 @@ jobs:
             label: Resource
             type: compute-clusters
             include-workspace: true
+            autoselect: true
             tooltip: |
               Runs the Ray coordinator and live dashboard.
               No compute tasks run here — this is a pure coordinator node.
