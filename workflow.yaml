@@ -254,17 +254,32 @@ jobs:
                 optional: true
                 ignore: ${{ inputs.targets.[index].resource.schedulerType != 'slurm' || inputs.targets.[index].scheduler == false }}
 
+              nodes:
+                label: Nodes
+                type: dropdown
+                default: "1"
+                tooltip: Number of compute nodes to request. Each node runs a Ray worker.
+                options:
+                  - value: "1"
+                    label: "1 node"
+                  - value: "2"
+                    label: "2 nodes"
+                  - value: "4"
+                    label: "4 nodes"
+                ignore: ${{ inputs.targets.[index].resource.schedulerType != 'slurm' || inputs.targets.[index].scheduler == false }}
+
               time:
                 label: Walltime
                 type: string
-                default: "01:00:00"
+                default: "00:05:00"
                 ignore: ${{ inputs.targets.[index].resource.schedulerType != 'slurm' || inputs.targets.[index].scheduler == false }}
 
               scheduler_directives:
                 type: editor
                 label: Additional Directives
                 optional: true
-                ignore: ${{ inputs.targets.[index].resource.schedulerType != 'slurm' || inputs.targets.[index].scheduler == false }}
+                hidden: true
+                ignore: true
 
           pbs:
             type: group

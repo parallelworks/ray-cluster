@@ -42,7 +42,7 @@ state = {
     "image_size": 0,
     "fractal_tiles": {},  # (tx, ty) string key -> tile data
 }
-connected_ws: list[WebSocket] = []
+connected_ws = []  # list of WebSocket
 
 
 def _reset_state():

@@ -1000,16 +1000,17 @@ function updateUI() {
       const color = getSiteColor(siteId);
       const name = s.cluster_name || siteId;
       const scheduler = s.scheduler_type ? ` (${s.scheduler_type})` : '';
-      const workers = s.num_workers || 0;
+      const nodeCount = (s.node_ips || []).length || 1;
       const siteLabel = `Site ${idx + 1}`;
       const avgMs = s.task_count > 0 ? Math.round(s.total_ms / s.task_count) : 0;
       const countLabel = workloadType === 'fractal' ? 'tiles' : 'tasks';
+      const nodeInfo = `${nodeCount} ${nodeCount === 1 ? 'node' : 'nodes'}`;
       container.innerHTML += `
         <div class="site-card">
           <div class="site-icon" style="background:${color}20; color:${color};">&#9900;</div>
           <div class="site-info">
             <div class="site-name">${name}${scheduler}</div>
-            <div class="site-detail">${siteLabel} &middot; ${workers} workers &middot; ${avgMs}ms avg</div>
+            <div class="site-detail">${siteLabel} &middot; ${nodeInfo} &middot; ${avgMs}ms avg</div>
           </div>
           <div class="site-count" style="color:${color}">${s.task_count || 0}</div>
         </div>`;
