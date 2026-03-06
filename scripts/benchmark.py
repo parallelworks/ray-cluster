@@ -382,7 +382,18 @@ def main():
     # Initialize Ray (connect to existing cluster)
     # RAY_ADDRESS env var is set by run_benchmark.sh to reach the head node
     ray_address = os.environ.get("RAY_ADDRESS", "auto")
-    ray.init(address=ray_address)
+    try:
+        ray.init(address=ray_address)
+    except ValueError as e:
+        if "node_ip_address.json" in str(e):
+            # Running on a different host than the head (e.g., login node in SLURM)
+            # Fall back to Ray Client protocol which doesn't require local session files
+            head_ip = ray_address.split(":")[0]
+            client_address = f"ray://{head_ip}:10001"
+            print(f"Direct connection failed — using Ray Client: {client_address}")
+            ray.init(address=client_address)
+        else:
+            raise
 
     # Report cluster info
     nodes = ray.nodes()
