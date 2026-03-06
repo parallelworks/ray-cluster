@@ -440,48 +440,50 @@ export OMP_NUM_THREADS=1
 export MKL_NUM_THREADS=1
 export OPENBLAS_NUM_THREADS=1
 
-${srun_cmd} bash -c '
+# Write srun task script to file (avoids quoting issues with bash -c)
+cat > "\${WORK}/srun_task.sh" <<'SRUN_TASK'
+#!/bin/bash
 set -e
-PROC_ID=\${SLURM_PROCID:-0}
-NODE_HOST=\$(hostname)
+PROC_ID=${SLURM_PROCID:-0}
+NODE_HOST=$(hostname)
 
 # Read my config
-source "\${WORK_DIR}/nodeinfo/config_\${PROC_ID}.sh"
+source "${WORK_DIR}/nodeinfo/config_${PROC_ID}.sh"
 
-echo "Node \${PROC_ID}: \${NODE_HOST}"
-echo "  Tunnel IP: \${MY_TUNNEL_IP}"
-echo "  Raylet: \${MY_RAYLET_PORT}, Obj: \${MY_OBJ_PORT}"
-echo "  Workers: \${MY_MIN_PORT}-\${MY_MAX_PORT}"
+echo "Node ${PROC_ID}: ${NODE_HOST}"
+echo "  Tunnel IP: ${MY_TUNNEL_IP}"
+echo "  Raylet: ${MY_RAYLET_PORT}, Obj: ${MY_OBJ_PORT}"
+echo "  Workers: ${MY_MIN_PORT}-${MY_MAX_PORT}"
 
 # Write hostname for coordinator
-echo "\${NODE_HOST}" > "\${WORK_DIR}/nodeinfo/host_\${PROC_ID}"
+echo "${NODE_HOST}" > "${WORK_DIR}/nodeinfo/host_${PROC_ID}"
 
 # Wait for forward tunnel proxies
 attempt=0
-while [ ! -f "\${WORK_DIR}/nodeinfo/proxies_ready" ]; do
+while [ ! -f "${WORK_DIR}/nodeinfo/proxies_ready" ]; do
     sleep 1
-    attempt=\$((attempt + 1))
-    if [ \${attempt} -gt 180 ]; then
+    attempt=$((attempt + 1))
+    if [ ${attempt} -gt 180 ]; then
         echo "[ERROR] Timeout waiting for proxies"
         exit 1
     fi
 done
 
 # Activate venv
-if [ -f "\${WORK_DIR}/.venv/bin/activate" ]; then
-    source "\${WORK_DIR}/.venv/bin/activate"
+if [ -f "${WORK_DIR}/.venv/bin/activate" ]; then
+    source "${WORK_DIR}/.venv/bin/activate"
 fi
 
 # Wait for Ray GCS
-echo "Waiting for Ray head at \${LOGIN_HOST}:\${PROXY_RAY_PORT}..."
+echo "Waiting for Ray head at ${LOGIN_HOST}:${PROXY_RAY_PORT}..."
 attempt=0
-while [ \${attempt} -le 60 ]; do
+while [ ${attempt} -le 60 ]; do
     if python3 -c "
 import socket, sys
 s = socket.socket()
 s.settimeout(3)
 try:
-    s.connect(('\''"\${LOGIN_HOST}"'\''', \${PROXY_RAY_PORT}))
+    s.connect(('${LOGIN_HOST}', ${PROXY_RAY_PORT}))
     s.close()
     sys.exit(0)
 except:
@@ -491,81 +493,84 @@ except:
         break
     fi
     sleep 2
-    attempt=\$((attempt + 1))
+    attempt=$((attempt + 1))
 done
 
 ray stop --force 2>/dev/null || true
 
-echo "Starting Ray worker: address=\${LOGIN_HOST}:\${PROXY_RAY_PORT} ip=\${MY_TUNNEL_IP}"
-RAY_ARGS="--address=\${LOGIN_HOST}:\${PROXY_RAY_PORT}"
-RAY_ARGS="\${RAY_ARGS} --node-ip-address=\${MY_TUNNEL_IP}"
-RAY_ARGS="\${RAY_ARGS} --node-manager-port=\${MY_RAYLET_PORT}"
-RAY_ARGS="\${RAY_ARGS} --object-manager-port=\${MY_OBJ_PORT}"
-RAY_ARGS="\${RAY_ARGS} --min-worker-port=\${MY_MIN_PORT}"
-RAY_ARGS="\${RAY_ARGS} --max-worker-port=\${MY_MAX_PORT}"
-if [ -n "\${RAY_NUM_CPUS_SETTING}" ]; then
-    RAY_ARGS="\${RAY_ARGS} --num-cpus=\${RAY_NUM_CPUS_SETTING}"
+echo "Starting Ray worker: address=${LOGIN_HOST}:${PROXY_RAY_PORT} ip=${MY_TUNNEL_IP}"
+RAY_ARGS="--address=${LOGIN_HOST}:${PROXY_RAY_PORT}"
+RAY_ARGS="${RAY_ARGS} --node-ip-address=${MY_TUNNEL_IP}"
+RAY_ARGS="${RAY_ARGS} --node-manager-port=${MY_RAYLET_PORT}"
+RAY_ARGS="${RAY_ARGS} --object-manager-port=${MY_OBJ_PORT}"
+RAY_ARGS="${RAY_ARGS} --min-worker-port=${MY_MIN_PORT}"
+RAY_ARGS="${RAY_ARGS} --max-worker-port=${MY_MAX_PORT}"
+if [ -n "${RAY_NUM_CPUS_SETTING}" ]; then
+    RAY_ARGS="${RAY_ARGS} --num-cpus=${RAY_NUM_CPUS_SETTING}"
 fi
-ray start \${RAY_ARGS}
+ray start ${RAY_ARGS}
 
-echo "Ray worker started on node \${PROC_ID} (\${NODE_HOST})"
+echo "Ray worker started on node ${PROC_ID} (${NODE_HOST})"
 
 # Auto-detect cluster name
 CLUSTER_NAME=""
 SCHED_TYPE=""
 PW_CMD_LOCAL=""
 for try_cmd in pw ~/pw/pw; do
-    command -v \${try_cmd} &>/dev/null && { PW_CMD_LOCAL=\${try_cmd}; break; }
-    [ -x "\${try_cmd}" ] && { PW_CMD_LOCAL=\${try_cmd}; break; }
+    command -v ${try_cmd} &>/dev/null && { PW_CMD_LOCAL=${try_cmd}; break; }
+    [ -x "${try_cmd}" ] && { PW_CMD_LOCAL=${try_cmd}; break; }
 done
-if [ -n "\${PW_CMD_LOCAL}" ]; then
-    MY_HOST=\$(hostname -s)
+if [ -n "${PW_CMD_LOCAL}" ]; then
+    MY_HOST=$(hostname -s)
     while IFS= read -r line; do
-        uri=\$(echo "\${line}" | awk "{print \\\$1}")
-        ctype=\$(echo "\${line}" | awk "{print \\\$3}")
-        cname="\${uri##*/}"
-        if echo "\${MY_HOST}" | grep -qi "\${cname}"; then
-            CLUSTER_NAME="\${cname}"
-            case "\${ctype}" in
+        uri=$(echo "${line}" | awk '{print $1}')
+        ctype=$(echo "${line}" | awk '{print $3}')
+        cname="${uri##*/}"
+        if echo "${MY_HOST}" | grep -qi "${cname}"; then
+            CLUSTER_NAME="${cname}"
+            case "${ctype}" in
                 *slurm*) SCHED_TYPE="slurm" ;;
                 *pbs*)   SCHED_TYPE="pbs" ;;
                 existing) SCHED_TYPE="ssh" ;;
-                *)       SCHED_TYPE="\${ctype}" ;;
+                *)       SCHED_TYPE="${ctype}" ;;
             esac
             break
         fi
-    done < <(\${PW_CMD_LOCAL} cluster list 2>/dev/null | grep "^pw://\${PW_USER}/" | grep "active")
+    done < <(${PW_CMD_LOCAL} cluster list 2>/dev/null | grep "^pw://${PW_USER}/" | grep "active")
 fi
-if [ -z "\${SCHED_TYPE}" ]; then
-    if [ -n "\${SLURM_JOB_ID}" ]; then SCHED_TYPE="slurm"
-    elif [ -n "\${PBS_JOBID}" ]; then SCHED_TYPE="pbs"
+if [ -z "${SCHED_TYPE}" ]; then
+    if [ -n "${SLURM_JOB_ID}" ]; then SCHED_TYPE="slurm"
+    elif [ -n "${PBS_JOBID}" ]; then SCHED_TYPE="pbs"
     else SCHED_TYPE="ssh"
     fi
 fi
-[ -z "\${CLUSTER_NAME}" ] && CLUSTER_NAME="'"${site_name}"'"
+[ -z "${CLUSTER_NAME}" ] && CLUSTER_NAME="${MY_SITE_ID}"
 
-WORKER_IP=\$(hostname -I 2>/dev/null | awk "{print \\\$1}")
-NUM_CPUS=\$(nproc 2>/dev/null || echo 1)
+WORKER_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+NUM_CPUS=$(nproc 2>/dev/null || echo 1)
 
-DASHBOARD_URL="http://\${LOGIN_HOST}:\${PROXY_DASH_PORT}"
-curl -s -X POST "\${DASHBOARD_URL}/api/worker" \
+DASHBOARD_URL="http://${LOGIN_HOST}:${PROXY_DASH_PORT}"
+curl -s -X POST "${DASHBOARD_URL}/api/worker" \
     -H "Content-Type: application/json" \
     -d "{
-        \"site_id\": \"\${MY_SITE_ID}\",
-        \"worker_ip\": \"\${MY_TUNNEL_IP}\",
-        \"num_cpus\": \${NUM_CPUS},
-        \"cluster_name\": \"\${CLUSTER_NAME}\",
-        \"scheduler_type\": \"\${SCHED_TYPE}\"
+        \"site_id\": \"${MY_SITE_ID}\",
+        \"worker_ip\": \"${MY_TUNNEL_IP}\",
+        \"num_cpus\": ${NUM_CPUS},
+        \"cluster_name\": \"${CLUSTER_NAME}\",
+        \"scheduler_type\": \"${SCHED_TYPE}\"
     }" 2>/dev/null || echo "Note: Could not notify dashboard"
 
-echo "Worker \${PROC_ID} RUNNING (tunnel IP: \${MY_TUNNEL_IP})"
+echo "Worker ${PROC_ID} RUNNING (tunnel IP: ${MY_TUNNEL_IP})"
 
 # Keep alive
 while true; do
-    ray status 2>/dev/null || echo "Worker \${PROC_ID} health: \$(date)"
+    ray status 2>/dev/null || echo "Worker ${PROC_ID} health: $(date)"
     sleep 30
 done
-' &
+SRUN_TASK
+chmod +x "\${WORK}/srun_task.sh"
+
+${srun_cmd} bash "\${WORK}/srun_task.sh" &
 SRUN_PID=\$!
 
 # Wait for all nodes to report hostnames
