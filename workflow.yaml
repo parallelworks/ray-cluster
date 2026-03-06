@@ -201,6 +201,23 @@ jobs:
   execute:
     inputs:
       # -----------------------------------------------------------------------
+      # Head Node (coordinator + dashboard — no compute tasks)
+      # -----------------------------------------------------------------------
+      head:
+        type: group
+        label: Head Node
+        items:
+          resource:
+            label: Resource
+            type: compute-clusters
+            include-workspace: true
+            autoselect: true
+            tooltip: |
+              Runs the Ray coordinator and live dashboard.
+              No compute tasks run here — this is a pure coordinator node.
+              Select a login node, cloud VM, or the user workspace.
+
+      # -----------------------------------------------------------------------
       # Compute Workers
       # -----------------------------------------------------------------------
       workers:
@@ -305,23 +322,6 @@ jobs:
                 tooltip: Type PBS scheduler directives
                 optional: true
                 ignore: ${{ inputs.workers.[index].resource.schedulerType != 'pbs' || inputs.workers.[index].scheduler == false }}
-
-      # -----------------------------------------------------------------------
-      # Head Node (coordinator + dashboard — no compute tasks)
-      # -----------------------------------------------------------------------
-      head:
-        type: group
-        label: Head Node
-        items:
-          resource:
-            label: Resource
-            type: compute-clusters
-            include-workspace: true
-            autoselect: true
-            tooltip: |
-              Runs the Ray coordinator and live dashboard.
-              No compute tasks run here — this is a pure coordinator node.
-              Select a login node, cloud VM, or the user workspace.
 
       # -----------------------------------------------------------------------
       # Ray Settings
