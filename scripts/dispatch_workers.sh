@@ -279,7 +279,7 @@ dispatch_worker() {
         NODE_RAYLET_PORTS+=($((base + 80)))
         NODE_OBJ_PORTS+=($((base + 81)))
         NODE_MIN_PORTS+=($((base)))
-        NODE_MAX_PORTS+=($((base + 20)))
+        NODE_MAX_PORTS+=($((base + 49)))
     done
 
     echo "[${site_id}] Tunnel IPs: ${NODE_TUNNEL_IPS[*]}"
@@ -435,6 +435,10 @@ export WORK_DIR="\${WORK}"
 export LOGIN_HOST
 export PROXY_RAY_PORT
 export PROXY_DASH_PORT
+export RAY_NUM_CPUS_SETTING="${RAY_NUM_CPUS:-}"
+export OMP_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+export OPENBLAS_NUM_THREADS=1
 
 ${srun_cmd} bash -c '
 set -e
@@ -493,12 +497,16 @@ done
 ray stop --force 2>/dev/null || true
 
 echo "Starting Ray worker: address=\${LOGIN_HOST}:\${PROXY_RAY_PORT} ip=\${MY_TUNNEL_IP}"
-ray start --address="\${LOGIN_HOST}:\${PROXY_RAY_PORT}" \
-    --node-ip-address=\${MY_TUNNEL_IP} \
-    --node-manager-port=\${MY_RAYLET_PORT} \
-    --object-manager-port=\${MY_OBJ_PORT} \
-    --min-worker-port=\${MY_MIN_PORT} \
-    --max-worker-port=\${MY_MAX_PORT}
+RAY_ARGS="--address=\${LOGIN_HOST}:\${PROXY_RAY_PORT}"
+RAY_ARGS="\${RAY_ARGS} --node-ip-address=\${MY_TUNNEL_IP}"
+RAY_ARGS="\${RAY_ARGS} --node-manager-port=\${MY_RAYLET_PORT}"
+RAY_ARGS="\${RAY_ARGS} --object-manager-port=\${MY_OBJ_PORT}"
+RAY_ARGS="\${RAY_ARGS} --min-worker-port=\${MY_MIN_PORT}"
+RAY_ARGS="\${RAY_ARGS} --max-worker-port=\${MY_MAX_PORT}"
+if [ -n "\${RAY_NUM_CPUS_SETTING}" ]; then
+    RAY_ARGS="\${RAY_ARGS} --num-cpus=\${RAY_NUM_CPUS_SETTING}"
+fi
+ray start \${RAY_ARGS}
 
 echo "Ray worker started on node \${PROC_ID} (\${NODE_HOST})"
 
@@ -639,6 +647,13 @@ if [ -f "\${VENV_DIR}/bin/python" ]; then
     source "\${VENV_DIR}/bin/activate"
 fi
 
+# Pin BLAS threading
+export OMP_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+export OPENBLAS_NUM_THREADS=1
+
+RAY_NUM_CPUS_SETTING="${RAY_NUM_CPUS:-}"
+
 # Wait for Ray head to be reachable via tunnel
 echo "Waiting for Ray head at 127.0.0.1:${tunnel_ray_port}..."
 attempt=1
@@ -685,19 +700,23 @@ echo "  Node IP advertised: ${ip} (via SSH forward tunnel)"
 echo "  Raylet port: ${raylet}"
 echo "  Object manager port: ${obj}"
 echo "  Worker process ports: ${min_port}-${max_port}"
-ray start --address="127.0.0.1:\${PROXY_RAY_PORT}" \\
-    --node-ip-address=${ip} \\
-    --node-manager-port=${raylet} \\
-    --object-manager-port=${obj} \\
-    --min-worker-port=${min_port} \\
-    --max-worker-port=${max_port}
+RAY_START_ARGS="--address=127.0.0.1:\${PROXY_RAY_PORT}"
+RAY_START_ARGS="\${RAY_START_ARGS} --node-ip-address=${ip}"
+RAY_START_ARGS="\${RAY_START_ARGS} --node-manager-port=${raylet}"
+RAY_START_ARGS="\${RAY_START_ARGS} --object-manager-port=${obj}"
+RAY_START_ARGS="\${RAY_START_ARGS} --min-worker-port=${min_port}"
+RAY_START_ARGS="\${RAY_START_ARGS} --max-worker-port=${max_port}"
+if [ -n "\${RAY_NUM_CPUS_SETTING}" ]; then
+    RAY_START_ARGS="\${RAY_START_ARGS} --num-cpus=\${RAY_NUM_CPUS_SETTING}"
+fi
+ray start \${RAY_START_ARGS}
 
 echo "Ray worker started!"
 ray status 2>/dev/null || echo "Note: ray status may not work on worker node"
 
 # Notify dashboard that worker joined
 WORKER_IP=\$(hostname -I 2>/dev/null | awk '{print \$1}')
-NUM_CPUS=\$(nproc 2>/dev/null || echo 1)
+NUM_CPUS=\${RAY_NUM_CPUS_SETTING:-\$(nproc 2>/dev/null || echo 1)}
 
 # Auto-detect cluster name and scheduler type using pw cluster list + hostname matching
 SCHED_TYPE=""
