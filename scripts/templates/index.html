@@ -17,12 +17,12 @@
     --site2: #f59e0b;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
+  html, body {
     font-family: 'Inter', -apple-system, system-ui, sans-serif;
     background: var(--bg);
     color: var(--text);
-    min-height: 100vh;
-    overflow-x: hidden;
+    height: 100vh;
+    overflow: hidden;
   }
   .header {
     padding: 1.2rem 2rem;
@@ -31,51 +31,165 @@
     align-items: center;
     justify-content: space-between;
   }
-  .header h1 { font-size: 1.3rem; font-weight: 600; letter-spacing: -0.02em; }
+  .header h1 {
+    font-size: 1.3rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
   .header h1 span { color: var(--accent); }
-  .header-right { display: flex; align-items: center; gap: 1.5rem; font-size: 0.85rem; color: var(--dim); }
-  .legend { display: flex; gap: 1rem; align-items: center; }
-  .legend-item { display: flex; align-items: center; gap: 0.4rem; }
-  .legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    font-size: 0.85rem;
+    color: var(--dim);
+  }
+  .legend {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+  }
+
+  /* Tabs */
+  .tab-bar {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel);
+    padding: 0 2rem;
+  }
+  .tab-btn {
+    padding: 0.6rem 1.2rem;
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: var(--dim);
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    transition: color 0.2s, border-color 0.2s;
+    font-family: inherit;
+  }
+  .tab-btn:hover { color: var(--text); }
+  .tab-btn.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+  }
+  .tab-btn.hidden { display: none; }
+
   .main {
     display: grid;
-    grid-template-columns: 1fr 340px;
+    grid-template-columns: 1fr 320px;
     gap: 0;
-    height: calc(100vh - 60px);
-  }
-  .charts-area {
-    display: flex;
-    flex-direction: column;
-    padding: 1.5rem 2rem;
-    gap: 1.5rem;
+    height: calc(100vh - 100px);
     overflow: hidden;
-  }
-  .chart-container {
-    flex: 1;
     position: relative;
+  }
+  .main > * {
     min-height: 0;
   }
-  .chart-container.topology { flex: 1.1; }
-  .chart-container.placement { flex: 0.9; }
-  .chart-container.throughput-main { flex: 1; }
-  .chart-label {
+  .main.no-sidebar {
+    grid-template-columns: 1fr;
+  }
+
+  /* Cluster view */
+  .cluster-view {
+    display: grid;
+    grid-template-rows: 3fr 2fr;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    overflow: hidden;
+  }
+  .cluster-view .chart-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .chart-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.6rem 0.8rem;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-height: 0;
+  }
+  .chart-card .card-title {
     font-size: 0.7rem;
     text-transform: uppercase;
     letter-spacing: 0.08em;
     color: var(--dim);
-    margin-bottom: 0.5rem;
+    margin-bottom: 0.4rem;
+    flex-shrink: 0;
   }
-  .chart-canvas-wrap {
-    width: 100%;
-    height: calc(100% - 24px);
+  .chart-card .chart-body {
+    flex: 1;
     position: relative;
+    min-height: 0;
+    overflow: hidden;
   }
-  .chart-canvas-wrap canvas {
+  .chart-card canvas {
     width: 100%;
     height: 100%;
+    display: block;
+  }
+
+  /* Fractal view */
+  .fractal-view {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+    position: relative;
+    overflow: hidden;
+  }
+  #fractal-canvas {
     border: 1px solid var(--border);
     border-radius: 8px;
+    image-rendering: pixelated;
+    cursor: grab;
   }
+  #fractal-canvas:active { cursor: grabbing; }
+  .zoom-hint {
+    position: absolute;
+    bottom: 1rem;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 0.7rem;
+    color: var(--dim);
+    background: var(--panel);
+    padding: 0.3rem 0.8rem;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    pointer-events: none;
+    opacity: 0.7;
+  }
+
+  /* Ray iframe */
+  .ray-iframe-wrap {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    z-index: 10;
+    background: var(--bg);
+  }
+  .ray-iframe-wrap iframe {
+    width: 100%; height: 100%; border: none;
+    filter: invert(0.9) hue-rotate(180deg);
+  }
+
   .sidebar {
     border-left: 1px solid var(--border);
     padding: 1.5rem;
@@ -114,7 +228,10 @@
   }
   .progress-label {
     position: absolute;
-    top: 0; left: 0; right: 0; bottom: 0;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -126,23 +243,25 @@
   .stat-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 0.4rem;
+    gap: 0.5rem;
   }
-  .stat-item {
-    display: flex;
-    flex-direction: column;
+  .stat {
+    text-align: center;
     padding: 0.5rem;
     background: var(--bg);
     border-radius: 6px;
-    text-align: center;
   }
   .stat-value {
-    font-size: 1.4rem;
+    font-size: 1.5rem;
     font-weight: 700;
     font-variant-numeric: tabular-nums;
-    color: var(--accent);
   }
-  .stat-label { font-size: 0.65rem; color: var(--dim); text-transform: uppercase; letter-spacing: 0.05em; margin-top: 0.2rem; }
+  .stat-label {
+    font-size: 0.65rem;
+    color: var(--dim);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
   .site-card {
     display: flex;
     align-items: center;
@@ -165,7 +284,11 @@
   .site-info { flex: 1; }
   .site-name { font-size: 0.85rem; font-weight: 600; }
   .site-detail { font-size: 0.7rem; color: var(--dim); }
-  .site-count { font-size: 1.2rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .site-count {
+    font-size: 1.2rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
   .result-row {
     display: flex;
     justify-content: space-between;
@@ -178,8 +301,15 @@
   }
   .result-label { color: var(--dim); }
   .result-value { font-weight: 600; font-variant-numeric: tabular-nums; color: var(--accent); }
-  .throughput-chart { width: 100%; height: 80px; position: relative; }
-  #throughput-canvas { width: 100%; height: 100%; }
+  .throughput-chart {
+    width: 100%;
+    height: 100px;
+    position: relative;
+  }
+  #throughput-mini-canvas {
+    width: 100%;
+    height: 100%;
+  }
   .status-badge {
     display: inline-flex;
     align-items: center;
@@ -189,82 +319,36 @@
     font-size: 0.75rem;
     font-weight: 500;
   }
-  .status-badge.waiting { background: rgba(107,122,144,0.2); color: var(--dim); }
-  .status-badge.running { background: rgba(34,211,238,0.15); color: var(--accent); }
-  .status-badge.complete { background: rgba(34,197,94,0.15); color: #22c55e; }
-  .tab-btn {
-    padding: 0.35rem 0.8rem;
-    border-radius: 6px;
-    border: 1px solid var(--border);
-    background: transparent;
+  .status-badge.waiting {
+    background: rgba(107,122,144,0.2);
     color: var(--dim);
-    font-size: 0.8rem;
-    cursor: pointer;
-    transition: all 0.2s;
   }
-  .tab-btn:hover { border-color: var(--accent); color: var(--text); }
-  .tab-btn.active { background: var(--accent); color: var(--bg); border-color: var(--accent); font-weight: 600; }
-  .ray-iframe-wrap {
-    display: none;
-    position: absolute;
-    top: 0; left: 0; right: 0; bottom: 0;
-    z-index: 10;
-    background: var(--bg);
+  .status-badge.running {
+    background: rgba(34,211,238,0.15);
+    color: var(--accent);
   }
-  .ray-iframe-wrap iframe {
-    width: 100%; height: 100%; border: none; border-radius: 8px;
-    filter: invert(0.9) hue-rotate(180deg);
+  .status-badge.complete {
+    background: rgba(34,197,94,0.15);
+    color: #22c55e;
   }
   .pulse {
-    width: 6px; height: 6px;
+    width: 6px;
+    height: 6px;
     border-radius: 50%;
     animation: pulse 1.5s infinite;
   }
-  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
-  /* Fractal view */
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
   .view-hidden { display: none !important; }
-  .no-sidebar .sidebar { display: none !important; }
-  .fractal-area {
-    display: none;
-    flex-direction: column;
-    padding: 1.5rem 2rem;
-    overflow: hidden;
-  }
-  .fractal-area .chart-label { margin-bottom: 0.5rem; }
-  .fractal-canvas-wrap {
-    flex: 1;
-    position: relative;
-    min-height: 0;
-  }
-  .fractal-canvas-wrap canvas {
-    width: 100%;
-    height: 100%;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    cursor: grab;
-  }
-  .fractal-canvas-wrap canvas:active { cursor: grabbing; }
-  .zoom-hint {
-    position: absolute;
-    bottom: 12px;
-    right: 12px;
-    font-size: 0.7rem;
-    color: var(--dim);
-    background: rgba(10,14,23,0.8);
-    padding: 0.3rem 0.6rem;
-    border-radius: 4px;
-  }
 </style>
 </head>
 <body>
 <div class="header">
   <h1><span>ACTIVATE</span> Ray Cluster Dashboard</h1>
   <div class="header-right">
-    <div style="display:flex; gap:0.4rem; margin-right:1rem;">
-      <button class="tab-btn active" id="tab-cluster" onclick="switchTab('cluster')">Cluster</button>
-      <button class="tab-btn hidden" id="tab-fractal" onclick="switchTab('fractal')" style="display:none;">Fractal</button>
-      <button class="tab-btn" id="tab-ray" onclick="switchTab('ray')">Ray Dashboard</button>
-    </div>
     <div class="legend" id="header-legend">
       <div class="legend-item">
         <div class="legend-dot" style="background:var(--dim)"></div>
@@ -278,43 +362,52 @@
   </div>
 </div>
 
-<div class="main" style="position:relative;">
-  <div class="ray-iframe-wrap" id="ray-iframe-wrap">
+<div class="tab-bar">
+  <button id="tab-cluster" class="tab-btn active" onclick="switchTab('cluster')">Cluster</button>
+  <button id="tab-fractal" class="tab-btn hidden" onclick="switchTab('fractal')">Fractal</button>
+  <button id="tab-ray" class="tab-btn" onclick="switchTab('ray')">Ray Dashboard</button>
+</div>
+
+<div id="main-container" class="main">
+  <!-- Ray iframe overlay -->
+  <div id="ray-iframe-wrap" class="ray-iframe-wrap view-hidden">
     <iframe id="ray-iframe" src="about:blank"></iframe>
   </div>
 
-  <!-- Benchmark charts view -->
-  <div class="charts-area" id="benchmark-view">
-    <div class="chart-container topology">
-      <div class="chart-label">Cluster Topology</div>
-      <div class="chart-canvas-wrap">
-        <canvas id="topology-canvas"></canvas>
+  <!-- Cluster view (main area) -->
+  <div id="cluster-view" class="cluster-view">
+    <div class="chart-row">
+      <div class="chart-card">
+        <div class="card-title">Cluster Topology</div>
+        <div class="chart-body">
+          <canvas id="topology-canvas"></canvas>
+        </div>
+      </div>
+      <div class="chart-card">
+        <div class="card-title" id="placement-title">Task Placement by Site</div>
+        <div class="chart-body">
+          <canvas id="placement-canvas"></canvas>
+        </div>
       </div>
     </div>
-    <div class="chart-container placement">
-      <div class="chart-label" id="placement-title">Task Placement by Site</div>
-      <div class="chart-canvas-wrap">
-        <canvas id="placement-canvas"></canvas>
-      </div>
-    </div>
-    <div class="chart-container throughput-main">
-      <div class="chart-label" id="throughput-title">Throughput (tasks/sec)</div>
-      <div class="chart-canvas-wrap">
-        <canvas id="throughput-main-canvas"></canvas>
+    <div class="chart-row">
+      <div class="chart-card" style="grid-column: 1 / -1;">
+        <div class="card-title" id="throughput-title">Throughput (tasks/sec)</div>
+        <div class="chart-body">
+          <canvas id="throughput-canvas"></canvas>
+        </div>
       </div>
     </div>
   </div>
 
-  <!-- Fractal canvas view -->
-  <div class="fractal-area" id="fractal-view">
-    <div class="chart-label">Fractal Rendering &mdash; <span id="fractal-grid-label">0x0</span> grid, <span id="fractal-tile-label">0</span>px tiles</div>
-    <div class="fractal-canvas-wrap">
-      <canvas id="fractal-canvas"></canvas>
-      <div class="zoom-hint">Scroll to zoom &middot; Drag to pan &middot; Double-click to reset</div>
-    </div>
+  <!-- Fractal view (main area) -->
+  <div id="fractal-view" class="fractal-view view-hidden">
+    <canvas id="fractal-canvas"></canvas>
+    <div class="zoom-hint">Scroll to zoom &middot; Drag to pan &middot; Double-click to reset</div>
   </div>
 
-  <div class="sidebar">
+  <!-- Sidebar -->
+  <div id="sidebar" class="sidebar">
     <!-- Progress -->
     <div class="card">
       <div class="card-title" id="progress-title">Progress</div>
@@ -324,30 +417,30 @@
       </div>
     </div>
 
-    <!-- Cluster Stats -->
+    <!-- Stats -->
     <div class="card">
-      <div class="card-title">Cluster Stats</div>
+      <div class="card-title">Cluster Statistics</div>
       <div class="stat-grid">
-        <div class="stat-item">
-          <div class="stat-value" id="stat-nodes">0</div>
-          <div class="stat-label">Nodes</div>
-        </div>
-        <div class="stat-item">
-          <div class="stat-value" id="stat-tasks">0</div>
-          <div class="stat-label" id="stat-tasks-label">Tasks Done</div>
-        </div>
-        <div class="stat-item">
+        <div class="stat">
           <div class="stat-value" id="stat-elapsed">0s</div>
           <div class="stat-label">Elapsed</div>
         </div>
-        <div class="stat-item">
-          <div class="stat-value" id="stat-tps">--</div>
+        <div class="stat">
+          <div class="stat-value" id="stat-tps">0</div>
           <div class="stat-label" id="stat-tps-label">Tasks/sec</div>
+        </div>
+        <div class="stat">
+          <div class="stat-value" id="stat-avg-ms">0</div>
+          <div class="stat-label" id="stat-avg-label">Avg ms/task</div>
+        </div>
+        <div class="stat">
+          <div class="stat-value" id="stat-total">0</div>
+          <div class="stat-label" id="stat-total-label">Total Tasks</div>
         </div>
       </div>
     </div>
 
-    <!-- Compute Sites -->
+    <!-- Sites -->
     <div class="card">
       <div class="card-title">Compute Sites</div>
       <div id="sites-container">
@@ -367,86 +460,17 @@
       <div id="results-container"></div>
     </div>
 
-    <!-- Throughput Mini (hidden in fractal mode) -->
+    <!-- Throughput Mini -->
     <div class="card" id="throughput-mini-card">
       <div class="card-title" id="throughput-mini-title">Throughput (tasks/sec)</div>
       <div class="throughput-chart">
-        <canvas id="throughput-canvas"></canvas>
+        <canvas id="throughput-mini-canvas"></canvas>
       </div>
     </div>
   </div>
 </div>
 
 <script>
-// =====================================================================
-// Workload mode
-// =====================================================================
-let workloadType = 'benchmark'; // 'benchmark' or 'fractal'
-let gridSize = 0;
-let imageSize = 0;
-
-let activeTab = 'cluster';
-
-function updateChartLabels() {
-  const unit = workloadType === 'fractal' ? 'Tile' : 'Task';
-  const units = unit + 's';
-  document.getElementById('placement-title').textContent = unit + ' Placement by Site';
-  document.getElementById('throughput-title').textContent = 'Throughput (' + units.toLowerCase() + '/sec)';
-  document.getElementById('throughput-mini-title').textContent = 'Throughput (' + units.toLowerCase() + '/sec)';
-  document.getElementById('stat-tasks-label').textContent = units + ' Done';
-  document.getElementById('stat-tps-label').textContent = units + '/sec';
-}
-
-function switchTab(tab) {
-  activeTab = tab;
-  const clusterView = document.getElementById('benchmark-view');
-  const fractalView = document.getElementById('fractal-view');
-  const sidebar = document.querySelector('.sidebar');
-  const mainEl = document.querySelector('.main');
-  const rayWrap = document.getElementById('ray-iframe-wrap');
-  const rayIframe = document.getElementById('ray-iframe');
-  const btnCluster = document.getElementById('tab-cluster');
-  const btnFractal = document.getElementById('tab-fractal');
-  const btnRay = document.getElementById('tab-ray');
-  const throughputMini = document.getElementById('throughput-mini-card');
-  const resultsCard = document.getElementById('results-card');
-
-  // Reset all
-  btnCluster.classList.remove('active');
-  btnFractal.classList.remove('active');
-  btnRay.classList.remove('active');
-  clusterView.classList.add('view-hidden');
-  fractalView.style.display = 'none';
-  rayWrap.style.display = 'none';
-  sidebar.classList.remove('view-hidden');
-  mainEl.classList.remove('no-sidebar');
-
-  if (tab === 'cluster') {
-    btnCluster.classList.add('active');
-    clusterView.classList.remove('view-hidden');
-    throughputMini.style.display = '';
-    if (workloadType === 'benchmark') resultsCard.style.display = '';
-    else resultsCard.style.display = 'none';
-    rayIframe.src = 'about:blank';
-    drawAll();
-  } else if (tab === 'fractal') {
-    btnFractal.classList.add('active');
-    fractalView.style.display = 'flex';
-    throughputMini.style.display = 'none';
-    resultsCard.style.display = 'none';
-    rayIframe.src = 'about:blank';
-    resizeFractalCanvas();
-    renderFractalView();
-  } else if (tab === 'ray') {
-    btnRay.classList.add('active');
-    sidebar.classList.add('view-hidden');
-    mainEl.classList.add('no-sidebar');
-    rayWrap.style.display = 'block';
-    const basePath = location.pathname.replace(/\/$/, '');
-    rayIframe.src = basePath + '/ray/';
-  }
-}
-
 const SITE_COLORS = {};
 const COLOR_PALETTE = ['#3b82f6', '#f59e0b', '#22c55e', '#ef4444', '#a855f7', '#ec4899'];
 let colorIdx = 0;
@@ -457,33 +481,6 @@ function getSiteColor(siteId) {
   }
   return SITE_COLORS[siteId];
 }
-
-// State
-let phase = 'waiting';
-let totalCompleted = 0;
-let totalPlanned = 0;
-let startTime = null;
-const siteStats = {};
-const nodes = {};
-function mergeSiteStats(incoming) {
-  for (const [siteId, data] of Object.entries(incoming || {})) {
-    if (!siteStats[siteId]) { siteStats[siteId] = data; }
-    else {
-      const prev = siteStats[siteId].cluster_name;
-      Object.assign(siteStats[siteId], data);
-      if (!data.cluster_name && prev) siteStats[siteId].cluster_name = prev;
-    }
-  }
-}
-const taskHistory = [];
-const throughputHistory = [];
-let lastThroughputCheck = null;
-let lastTaskCounts = {};
-
-// Benchmark results
-let throughputResults = null;
-let computeResults = [];
-let scalingResults = null;
 
 function updateHeaderLegend() {
   const legend = document.getElementById('header-legend');
@@ -500,423 +497,455 @@ function updateHeaderLegend() {
   }).join('');
 }
 
-// =====================================================================
-// Fractal Canvas — offscreen compositing + zoom/pan
-// =====================================================================
-const fractalCanvas = document.getElementById('fractal-canvas');
-const fractalCtx = fractalCanvas.getContext('2d');
+// State
+let workloadType = 'benchmark';
+let gridSize = 0;
+let imageSize = 0;
+let activeTab = 'cluster';
+let phase = 'waiting';
+let totalCompleted = 0;
+let totalPlanned = 0;
+let startTime = null;
+const siteStats = {};
+const rayNodes = {};  // node_ip -> {site_id, num_cpus, ...}
+const throughputHistory = [];
+let lastThroughputCheck = null;
+let lastTaskCounts = {};
+
+// Benchmark results
+let throughputResults = null;
+let computeResults = [];
+let scalingResults = null;
+
+function mergeSiteStats(incoming) {
+  for (const [siteId, data] of Object.entries(incoming || {})) {
+    if (!siteStats[siteId]) { siteStats[siteId] = data; }
+    else {
+      const prev = siteStats[siteId].cluster_name;
+      Object.assign(siteStats[siteId], data);
+      if (!data.cluster_name && prev) siteStats[siteId].cluster_name = prev;
+    }
+  }
+}
+
+// Fractal canvas setup
+const canvas = document.getElementById('fractal-canvas');
+const ctx = canvas.getContext('2d');
 let offscreen = null;
 let offCtx = null;
-let fractalZoom = 1;
-let fractalPanX = 0, fractalPanY = 0;
+let tilePixels = 128;
+
+// Zoom/pan state
+let zoom = null;
+let panX = 0, panY = 0;
+let fitZoom = 1;
+let userHasZoomed = false;
 let isDragging = false;
 let dragStartX = 0, dragStartY = 0;
-let dragPanStartX = 0, dragPanStartY = 0;
-// Track which tiles have been drawn (for border color)
-const drawnTiles = {}; // "tx,ty" -> siteId
+let panStartX = 0, panStartY = 0;
 
+// --- Tab switching ---
+function switchTab(tab) {
+  activeTab = tab;
+  const clusterView = document.getElementById('cluster-view');
+  const fractalView = document.getElementById('fractal-view');
+  const sidebar = document.getElementById('sidebar');
+  const mainContainer = document.getElementById('main-container');
+  const throughputMini = document.getElementById('throughput-mini-card');
+  const resultsCard = document.getElementById('results-card');
+  const rayWrap = document.getElementById('ray-iframe-wrap');
+  const rayIframe = document.getElementById('ray-iframe');
+
+  // Tab button states
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + tab).classList.add('active');
+
+  // Hide all views
+  clusterView.classList.add('view-hidden');
+  fractalView.classList.add('view-hidden');
+  rayWrap.classList.add('view-hidden');
+  sidebar.classList.remove('view-hidden');
+  mainContainer.classList.remove('no-sidebar');
+
+  if (tab === 'cluster') {
+    clusterView.classList.remove('view-hidden');
+    throughputMini.style.display = '';
+    if (workloadType === 'benchmark') resultsCard.style.display = '';
+    else resultsCard.style.display = 'none';
+    rayIframe.src = 'about:blank';
+    drawAll();
+  } else if (tab === 'fractal') {
+    fractalView.classList.remove('view-hidden');
+    throughputMini.style.display = 'none';
+    resultsCard.style.display = 'none';
+    rayIframe.src = 'about:blank';
+    resizeFractalCanvas();
+    renderView();
+  } else if (tab === 'ray') {
+    sidebar.classList.add('view-hidden');
+    mainContainer.classList.add('no-sidebar');
+    rayWrap.classList.remove('view-hidden');
+    const basePath = location.pathname.replace(/\/$/, '');
+    rayIframe.src = basePath + '/ray/';
+  }
+}
+
+// --- Chart label updates ---
+function updateChartLabels() {
+  const unit = workloadType === 'fractal' ? 'Tile' : 'Task';
+  const units = unit + 's';
+  document.getElementById('placement-title').textContent = unit + ' Placement by Site';
+  document.getElementById('throughput-title').textContent = 'Throughput (' + units.toLowerCase() + '/sec)';
+  document.getElementById('throughput-mini-title').textContent = 'Throughput (' + units.toLowerCase() + '/sec)';
+  document.getElementById('stat-tps-label').textContent = units + '/sec';
+  document.getElementById('stat-avg-label').textContent = 'Avg ms/' + unit.toLowerCase();
+  document.getElementById('stat-total-label').textContent = 'Total ' + units;
+}
+
+// --- Fractal offscreen ---
 function initOffscreen() {
   if (gridSize <= 0 || imageSize <= 0) return;
-  const totalPx = gridSize * imageSize;
+  tilePixels = imageSize;
   offscreen = document.createElement('canvas');
-  offscreen.width = totalPx;
-  offscreen.height = totalPx;
+  offscreen.width = gridSize * tilePixels;
+  offscreen.height = gridSize * tilePixels;
   offCtx = offscreen.getContext('2d');
-  offCtx.fillStyle = '#111';
-  offCtx.fillRect(0, 0, totalPx, totalPx);
-  // Draw grid lines
+  offCtx.fillStyle = '#0a0e17';
+  offCtx.fillRect(0, 0, offscreen.width, offscreen.height);
   offCtx.strokeStyle = '#1e2a3a';
   offCtx.lineWidth = 1;
   for (let i = 0; i <= gridSize; i++) {
-    const p = i * imageSize;
-    offCtx.beginPath(); offCtx.moveTo(p, 0); offCtx.lineTo(p, totalPx); offCtx.stroke();
-    offCtx.beginPath(); offCtx.moveTo(0, p); offCtx.lineTo(totalPx, p); offCtx.stroke();
+    const x = i * tilePixels;
+    offCtx.beginPath(); offCtx.moveTo(x, 0); offCtx.lineTo(x, offscreen.height); offCtx.stroke();
+    offCtx.beginPath(); offCtx.moveTo(0, x); offCtx.lineTo(offscreen.width, x); offCtx.stroke();
   }
-}
-
-function drawTileToOffscreen(tx, ty, pngB64, siteId) {
-  if (!offCtx) return;
-  const img = new Image();
-  img.onload = () => {
-    const px = tx * imageSize;
-    const py = ty * imageSize;
-    offCtx.drawImage(img, px, py, imageSize, imageSize);
-    // Draw site-colored border inset to avoid overlap with neighbors
-    const color = getSiteColor(siteId);
-    const inset = 3;
-    offCtx.strokeStyle = color;
-    offCtx.lineWidth = 2;
-    offCtx.strokeRect(px + inset, py + inset, imageSize - inset * 2, imageSize - inset * 2);
-    drawnTiles[tx + ',' + ty] = siteId;
-    renderFractalView();
-  };
-  img.src = 'data:image/png;base64,' + pngB64;
 }
 
 function resizeFractalCanvas() {
-  const wrap = fractalCanvas.parentElement;
-  if (!wrap) return;
-  const rect = wrap.getBoundingClientRect();
-  const dpr = window.devicePixelRatio || 1;
-  fractalCanvas.width = rect.width * dpr;
-  fractalCanvas.height = rect.height * dpr;
-  fractalCtx.scale(dpr, dpr);
+  const needsInit = !offscreen || (gridSize > 0 && offscreen.width !== gridSize * imageSize);
+  if (needsInit) initOffscreen();
+
+  const area = canvas.parentElement;
+  if (!area || area.classList.contains('view-hidden')) return;
+  const maxW = area.clientWidth - 64;
+  const maxH = area.clientHeight - 64;
+  const fitSize = Math.max(Math.min(maxW, maxH), 100);
+  canvas.width = fitSize;
+  canvas.height = fitSize;
+
+  if (offscreen) {
+    fitZoom = fitSize / offscreen.width;
+    if (!userHasZoomed) {
+      zoom = fitZoom;
+      panX = 0;
+      panY = 0;
+    }
+  }
+  renderView();
 }
 
-function renderFractalView() {
-  if (!offscreen) return;
-  const wrap = fractalCanvas.parentElement;
-  if (!wrap) return;
-  const rect = wrap.getBoundingClientRect();
-  const w = rect.width, h = rect.height;
-
-  fractalCtx.fillStyle = '#0a0e17';
-  fractalCtx.fillRect(0, 0, w, h);
-
-  // Fit offscreen into view with zoom/pan
-  const totalPx = gridSize * imageSize;
-  const scale = Math.min(w / totalPx, h / totalPx) * fractalZoom;
-  const cx = w / 2 + fractalPanX;
-  const cy = h / 2 + fractalPanY;
-  const drawW = totalPx * scale;
-  const drawH = totalPx * scale;
-
-  fractalCtx.drawImage(offscreen, cx - drawW / 2, cy - drawH / 2, drawW, drawH);
+function drawTileToOffscreen(tx, ty, png_b64, siteId) {
+  if (!offCtx) return;
+  const img = new Image();
+  img.onload = () => {
+    const x = tx * tilePixels;
+    const y = ty * tilePixels;
+    offCtx.drawImage(img, x, y, tilePixels, tilePixels);
+    const color = getSiteColor(siteId);
+    offCtx.strokeStyle = color;
+    offCtx.lineWidth = Math.max(2, tilePixels / 64);
+    offCtx.strokeRect(x + 1, y + 1, tilePixels - 2, tilePixels - 2);
+    if (activeTab === 'fractal') renderView();
+  };
+  img.src = 'data:image/png;base64,' + png_b64;
 }
 
-// Zoom/pan event handlers
-fractalCanvas.addEventListener('wheel', (e) => {
+function renderView() {
+  if (!zoom || !offscreen) return;
+  ctx.fillStyle = '#0a0e17';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.save();
+  ctx.translate(canvas.width / 2 + panX, canvas.height / 2 + panY);
+  ctx.scale(zoom, zoom);
+  ctx.translate(-offscreen.width / 2, -offscreen.height / 2);
+  ctx.imageSmoothingEnabled = zoom < 1;
+  ctx.drawImage(offscreen, 0, 0);
+  ctx.restore();
+}
+
+// Zoom with scroll wheel
+canvas.addEventListener('wheel', (e) => {
   e.preventDefault();
-  const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
-  fractalZoom = Math.max(0.5, Math.min(20, fractalZoom * factor));
-  renderFractalView();
+  const zoomFactor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left - canvas.width / 2 - panX;
+  const my = e.clientY - rect.top - canvas.height / 2 - panY;
+  panX -= mx * (zoomFactor - 1);
+  panY -= my * (zoomFactor - 1);
+  zoom *= zoomFactor;
+  zoom = Math.max(0.1, Math.min(zoom, 20));
+  userHasZoomed = true;
+  renderView();
 }, { passive: false });
 
-fractalCanvas.addEventListener('mousedown', (e) => {
+// Pan with drag
+canvas.addEventListener('mousedown', (e) => {
   isDragging = true;
   dragStartX = e.clientX;
   dragStartY = e.clientY;
-  dragPanStartX = fractalPanX;
-  dragPanStartY = fractalPanY;
+  panStartX = panX;
+  panStartY = panY;
 });
-
 window.addEventListener('mousemove', (e) => {
   if (!isDragging) return;
-  fractalPanX = dragPanStartX + (e.clientX - dragStartX);
-  fractalPanY = dragPanStartY + (e.clientY - dragStartY);
-  renderFractalView();
+  panX = panStartX + (e.clientX - dragStartX);
+  panY = panStartY + (e.clientY - dragStartY);
+  userHasZoomed = true;
+  renderView();
 });
-
 window.addEventListener('mouseup', () => { isDragging = false; });
 
-fractalCanvas.addEventListener('dblclick', () => {
-  fractalZoom = 1;
-  fractalPanX = 0;
-  fractalPanY = 0;
-  renderFractalView();
+// Double-click to reset zoom
+canvas.addEventListener('dblclick', () => {
+  zoom = fitZoom; panX = 0; panY = 0;
+  userHasZoomed = false;
+  renderView();
 });
 
-// =====================================================================
-// Benchmark Canvases (unchanged)
-// =====================================================================
-const topoCanvas = document.getElementById('topology-canvas');
-const topoCtx = topoCanvas.getContext('2d');
-
+// --- Topology chart ---
 function drawTopology() {
-  const rect = topoCanvas.parentElement.getBoundingClientRect();
-  const dpr = window.devicePixelRatio || 1;
-  topoCanvas.width = rect.width * dpr;
-  topoCanvas.height = rect.height * dpr;
-  topoCtx.scale(dpr, dpr);
+  const c = document.getElementById('topology-canvas');
+  const parent = c.parentElement;
+  const rect = parent.getBoundingClientRect();
+  const dpr = window.devicePixelRatio;
+  c.width = rect.width * dpr;
+  c.height = rect.height * dpr;
+  const g = c.getContext('2d');
+  g.scale(dpr, dpr);
   const w = rect.width, h = rect.height;
 
-  topoCtx.fillStyle = '#0a0e17';
-  topoCtx.fillRect(0, 0, w, h);
+  g.fillStyle = '#0a0e17';
+  g.fillRect(0, 0, w, h);
 
   const siteIds = Object.keys(siteStats);
   if (siteIds.length === 0) {
-    topoCtx.fillStyle = '#6b7a90';
-    topoCtx.font = '14px Inter, system-ui, sans-serif';
-    topoCtx.textAlign = 'center';
-    topoCtx.fillText('Waiting for Ray nodes to join...', w/2, h/2);
+    g.fillStyle = '#6b7a90';
+    g.font = '13px Inter, system-ui, sans-serif';
+    g.textAlign = 'center';
+    g.fillText('Waiting for Ray nodes to join...', w / 2, h / 2);
     return;
   }
 
-  const pad = { left: 40, right: 40, top: 30, bottom: 20 };
-  const plotW = w - pad.left - pad.right;
+  const unitLabel = workloadType === 'fractal' ? 'tiles' : 'tasks';
 
-  const hubX = w / 2;
-  const hubY = pad.top + 30;
-  topoCtx.fillStyle = '#22d3ee22';
-  topoCtx.beginPath();
-  topoCtx.arc(hubX, hubY, 25, 0, Math.PI * 2);
-  topoCtx.fill();
-  topoCtx.strokeStyle = '#22d3ee';
-  topoCtx.lineWidth = 2;
-  topoCtx.stroke();
-  topoCtx.fillStyle = '#22d3ee';
-  topoCtx.font = 'bold 10px Inter, system-ui, sans-serif';
-  topoCtx.textAlign = 'center';
-  topoCtx.fillText('RAY', hubX, hubY + 4);
+  // Draw Ray hub node at center-top
+  const cx = w / 2, cy = 40;
+  g.beginPath();
+  g.arc(cx, cy, 20, 0, Math.PI * 2);
+  g.fillStyle = '#22d3ee22';
+  g.fill();
+  g.strokeStyle = '#22d3ee';
+  g.lineWidth = 2;
+  g.stroke();
+  g.fillStyle = '#22d3ee';
+  g.font = 'bold 10px Inter, system-ui, sans-serif';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillText('RAY', cx, cy);
 
-  const siteWidth = plotW / siteIds.length;
-  siteIds.forEach((siteId, sIdx) => {
-    const color = getSiteColor(siteId);
-    const stats = siteStats[siteId];
-    const siteX = pad.left + sIdx * siteWidth + siteWidth / 2;
-    const siteY = pad.top + 100;
-
-    topoCtx.fillStyle = color;
-    topoCtx.font = 'bold 12px Inter, system-ui, sans-serif';
-    topoCtx.textAlign = 'center';
-    const label = stats.cluster_name || siteId;
-    const scheduler = stats.scheduler_type ? ` (${stats.scheduler_type})` : '';
-    topoCtx.fillText(label + scheduler, siteX, siteY - 15);
-
-    topoCtx.strokeStyle = color + '60';
-    topoCtx.lineWidth = 2;
-    topoCtx.setLineDash([4, 4]);
-    topoCtx.beginPath();
-    topoCtx.moveTo(hubX, hubY + 25);
-    topoCtx.lineTo(siteX, siteY - 5);
-    topoCtx.stroke();
-    topoCtx.setLineDash([]);
-
-    const nodeIps = stats.node_ips || [];
-    const nodeCount = Math.max(nodeIps.length, 1);
-    const nodeSpacing = Math.min(50, (siteWidth - 40) / nodeCount);
-    const startNodeX = siteX - (nodeCount - 1) * nodeSpacing / 2;
-
-    for (let i = 0; i < nodeCount; i++) {
-      const nx = startNodeX + i * nodeSpacing;
-      const ny = siteY + 15;
-      const nodeRadius = 16;
-
-      topoCtx.fillStyle = color + '25';
-      topoCtx.beginPath();
-      topoCtx.arc(nx, ny, nodeRadius, 0, Math.PI * 2);
-      topoCtx.fill();
-      topoCtx.strokeStyle = color;
-      topoCtx.lineWidth = 1.5;
-      topoCtx.stroke();
-
-      topoCtx.fillStyle = color;
-      topoCtx.font = '9px Inter, system-ui, sans-serif';
-      topoCtx.textAlign = 'center';
-      const cpus = nodeIps[i] ? (nodes[nodeIps[i]]?.num_cpus || '?') : '?';
-      topoCtx.fillText(cpus + ' CPU', nx, ny + 4);
-    }
-
-    const statsY = siteY + 50;
-    topoCtx.fillStyle = '#6b7a90';
-    topoCtx.font = '10px Inter, system-ui, sans-serif';
-    topoCtx.textAlign = 'center';
-    const topoUnit = workloadType === 'fractal' ? 'tiles' : 'tasks';
-    topoCtx.fillText(`${stats.task_count || 0} ${topoUnit}`, siteX, statsY);
-    if (stats.task_count > 0) {
-      const avgMs = Math.round((stats.total_ms || 0) / stats.task_count);
-      topoCtx.fillText(`${avgMs}ms avg`, siteX, statsY + 14);
-    }
-  });
-}
-
-const placeCanvas = document.getElementById('placement-canvas');
-const placeCtx = placeCanvas.getContext('2d');
-
-function drawPlacement() {
-  const rect = placeCanvas.parentElement.getBoundingClientRect();
-  const dpr = window.devicePixelRatio || 1;
-  placeCanvas.width = rect.width * dpr;
-  placeCanvas.height = rect.height * dpr;
-  placeCtx.scale(dpr, dpr);
-  const w = rect.width, h = rect.height;
-
-  placeCtx.fillStyle = '#0a0e17';
-  placeCtx.fillRect(0, 0, w, h);
-
-  const siteIds = Object.keys(siteStats);
-  if (siteIds.length === 0) return;
-
-  const pad = { left: 60, right: 30, top: 20, bottom: 40 };
-  const plotW = w - pad.left - pad.right;
-  const plotH = h - pad.top - pad.bottom;
-
-  let maxCount = 1;
-  siteIds.forEach(s => {
-    const count = siteStats[s].task_count || 0;
-    if (count > maxCount) maxCount = count;
-  });
-
-  const barWidth = Math.min(80, plotW / siteIds.length - 20);
-  const spacing = (plotW - barWidth * siteIds.length) / (siteIds.length + 1);
+  // Position site nodes below hub
+  const siteSpacing = Math.min(200, (w - 80) / siteIds.length);
+  const siteY = cy + 80;
 
   siteIds.forEach((siteId, i) => {
+    const s = siteStats[siteId];
     const color = getSiteColor(siteId);
-    const count = siteStats[siteId].task_count || 0;
-    const x = pad.left + spacing + i * (barWidth + spacing);
-    const barH = (count / maxCount) * plotH;
-    const y = pad.top + plotH - barH;
+    const nodeX = w / 2 + (i - (siteIds.length - 1) / 2) * siteSpacing;
 
-    const grad = placeCtx.createLinearGradient(x, y, x, y + barH);
-    grad.addColorStop(0, color);
-    grad.addColorStop(1, color + '60');
-    placeCtx.fillStyle = grad;
-    placeCtx.fillRect(x, y, barWidth, barH);
+    // Connection line from hub to site
+    g.beginPath();
+    g.moveTo(cx, cy + 20);
+    g.lineTo(nodeX, siteY - 26);
+    g.strokeStyle = color + '44';
+    g.lineWidth = 2;
+    g.stroke();
 
-    placeCtx.strokeStyle = color;
-    placeCtx.lineWidth = 1;
-    placeCtx.strokeRect(x, y, barWidth, barH);
+    // Animated data flow dots
+    const progress = (Date.now() % 2000) / 2000;
+    if ((s.task_count || 0) > 0 && totalCompleted < totalPlanned) {
+      const dotX = cx + (nodeX - cx) * progress;
+      const dotY = (cy + 20) + (siteY - 26 - cy - 20) * progress;
+      g.beginPath();
+      g.arc(dotX, dotY, 3, 0, Math.PI * 2);
+      g.fillStyle = color;
+      g.fill();
+    }
 
-    placeCtx.fillStyle = color;
-    placeCtx.font = 'bold 14px Inter, system-ui, sans-serif';
-    placeCtx.textAlign = 'center';
-    placeCtx.fillText(count.toString(), x + barWidth / 2, y - 8);
+    // Site node circle
+    g.beginPath();
+    g.arc(nodeX, siteY, 24, 0, Math.PI * 2);
+    g.fillStyle = color + '18';
+    g.fill();
+    g.strokeStyle = color;
+    g.lineWidth = 2;
+    g.stroke();
 
-    placeCtx.fillStyle = '#6b7a90';
-    placeCtx.font = '10px Inter, system-ui, sans-serif';
-    const label = siteStats[siteId].cluster_name || siteId;
-    placeCtx.fillText(label, x + barWidth / 2, pad.top + plotH + 16);
+    // Site label
+    const name = s.cluster_name || siteId;
+    const shortName = name.length > 12 ? name.slice(0, 11) + '\u2026' : name;
+    g.fillStyle = color;
+    g.font = 'bold 9px Inter, system-ui, sans-serif';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillText(shortName, nodeX, siteY - 6);
+
+    // Task count in site circle
+    g.fillStyle = '#e0e6f0';
+    g.font = 'bold 12px Inter, system-ui, sans-serif';
+    g.fillText(String(s.task_count || 0), nodeX, siteY + 9);
+
+    // Draw individual compute nodes below the site
+    const nodeIps = s.node_ips || [];
+    const numNodes = Math.max(nodeIps.length, 1);
+    const nodeRadius = 14;
+    const nodeSpacingH = Math.min(50, (siteSpacing - 20) / numNodes);
+    const nodesY = siteY + 60;
+
+    if (nodeIps.length > 0) {
+      nodeIps.forEach((ip, ni) => {
+        const nx = nodeX + (ni - (nodeIps.length - 1) / 2) * nodeSpacingH;
+        const nodeData = rayNodes[ip] || {};
+
+        // Line from site to node
+        g.beginPath();
+        g.moveTo(nodeX, siteY + 24);
+        g.lineTo(nx, nodesY - nodeRadius);
+        g.strokeStyle = color + '33';
+        g.lineWidth = 1.5;
+        g.stroke();
+
+        // Node circle
+        g.beginPath();
+        g.arc(nx, nodesY, nodeRadius, 0, Math.PI * 2);
+        g.fillStyle = color + '12';
+        g.fill();
+        g.strokeStyle = color + '88';
+        g.lineWidth = 1.5;
+        g.stroke();
+
+        // CPU count in node
+        const cpus = nodeData.num_cpus || '?';
+        g.fillStyle = color + 'cc';
+        g.font = '8px Inter, system-ui, sans-serif';
+        g.textAlign = 'center';
+        g.textBaseline = 'middle';
+        g.fillText(cpus + ' CPU', nx, nodesY);
+      });
+
+      // Summary below nodes
+      g.fillStyle = '#6b7a90';
+      g.font = '9px Inter, system-ui, sans-serif';
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.fillText(nodeIps.length + (nodeIps.length === 1 ? ' node' : ' nodes') + ' \u00b7 ' + (s.task_count || 0) + ' ' + unitLabel, nodeX, nodesY + nodeRadius + 14);
+    } else {
+      // No node data yet
+      g.fillStyle = '#6b7a90';
+      g.font = '9px Inter, system-ui, sans-serif';
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.fillText((s.task_count || 0) + ' ' + unitLabel, nodeX, siteY + 38);
+    }
   });
-
-  placeCtx.strokeStyle = '#1e2a3a';
-  placeCtx.lineWidth = 1;
-  placeCtx.beginPath();
-  placeCtx.moveTo(pad.left, pad.top);
-  placeCtx.lineTo(pad.left, pad.top + plotH);
-  placeCtx.lineTo(pad.left + plotW, pad.top + plotH);
-  placeCtx.stroke();
-
-  placeCtx.fillStyle = '#6b7a90';
-  placeCtx.font = '10px Inter, system-ui, sans-serif';
-  placeCtx.textAlign = 'right';
-  for (let i = 0; i <= 4; i++) {
-    const val = Math.round(maxCount * (i / 4));
-    const y = pad.top + plotH - (i / 4) * plotH;
-    placeCtx.fillText(val.toString(), pad.left - 8, y + 4);
-    placeCtx.strokeStyle = 'rgba(30,42,58,0.5)';
-    placeCtx.lineWidth = 0.5;
-    placeCtx.beginPath();
-    placeCtx.moveTo(pad.left, y);
-    placeCtx.lineTo(pad.left + plotW, y);
-    placeCtx.stroke();
-  }
 }
 
-const tMainCanvas = document.getElementById('throughput-main-canvas');
-const tMainCtx = tMainCanvas.getContext('2d');
-
-function drawThroughputMain() {
-  const rect = tMainCanvas.parentElement.getBoundingClientRect();
-  const dpr = window.devicePixelRatio || 1;
-  tMainCanvas.width = rect.width * dpr;
-  tMainCanvas.height = rect.height * dpr;
-  tMainCtx.scale(dpr, dpr);
+// --- Placement bar chart ---
+function drawPlacement() {
+  const c = document.getElementById('placement-canvas');
+  const parent = c.parentElement;
+  const rect = parent.getBoundingClientRect();
+  const dpr = window.devicePixelRatio;
+  c.width = rect.width * dpr;
+  c.height = rect.height * dpr;
+  const g = c.getContext('2d');
+  g.scale(dpr, dpr);
   const w = rect.width, h = rect.height;
 
-  tMainCtx.fillStyle = '#0a0e17';
-  tMainCtx.fillRect(0, 0, w, h);
+  g.fillStyle = '#0a0e17';
+  g.fillRect(0, 0, w, h);
 
-  if (throughputHistory.length < 2) {
-    tMainCtx.fillStyle = '#6b7a90';
-    tMainCtx.font = '14px Inter, system-ui, sans-serif';
-    tMainCtx.textAlign = 'center';
-    tMainCtx.fillText('Throughput data will appear during benchmark...', w/2, h/2);
+  const siteIds = Object.keys(siteStats);
+  if (siteIds.length === 0) {
+    g.fillStyle = '#6b7a90';
+    g.font = '13px Inter, system-ui, sans-serif';
+    g.textAlign = 'center';
+    g.fillText('No data yet', w / 2, h / 2);
     return;
   }
 
-  const pad = { left: 50, right: 20, top: 20, bottom: 40 };
+  const pad = { top: 10, right: 20, bottom: 30, left: 90 };
   const plotW = w - pad.left - pad.right;
   const plotH = h - pad.top - pad.bottom;
+  const maxVal = Math.max(1, ...siteIds.map(s => siteStats[s].task_count || 0));
+  const barH = Math.min(40, plotH / siteIds.length - 8);
 
-  const points = throughputHistory.slice(-120);
-  const sites = Object.keys(SITE_COLORS);
-
-  let maxVal = 1;
-  points.forEach(p => {
-    let stacked = 0;
-    sites.forEach(s => { stacked += (p.perSite[s] || 0); });
-    if (stacked > maxVal) maxVal = stacked;
-  });
-
-  tMainCtx.strokeStyle = '#1e2a3a';
-  tMainCtx.lineWidth = 1;
-  tMainCtx.beginPath();
-  tMainCtx.moveTo(pad.left, pad.top);
-  tMainCtx.lineTo(pad.left, pad.top + plotH);
-  tMainCtx.lineTo(pad.left + plotW, pad.top + plotH);
-  tMainCtx.stroke();
-
-  const dx = plotW / Math.max(points.length - 1, 1);
-
-  sites.forEach((siteId) => {
+  siteIds.forEach((siteId, i) => {
+    const s = siteStats[siteId];
     const color = getSiteColor(siteId);
+    const count = s.task_count || 0;
+    const y = pad.top + i * (plotH / siteIds.length) + (plotH / siteIds.length - barH) / 2;
+    const barW = (count / maxVal) * plotW;
 
-    tMainCtx.fillStyle = color + '30';
-    tMainCtx.beginPath();
-    tMainCtx.moveTo(pad.left, pad.top + plotH);
-    points.forEach((p, i) => {
-      const x = pad.left + i * dx;
-      const val = p.perSite[siteId] || 0;
-      const y = pad.top + plotH - (val / maxVal) * plotH;
-      tMainCtx.lineTo(x, y);
-    });
-    tMainCtx.lineTo(pad.left + (points.length - 1) * dx, pad.top + plotH);
-    tMainCtx.closePath();
-    tMainCtx.fill();
+    // Bar
+    g.fillStyle = color + '88';
+    g.beginPath();
+    g.roundRect(pad.left, y, Math.max(barW, 2), barH, 4);
+    g.fill();
 
-    tMainCtx.strokeStyle = color;
-    tMainCtx.lineWidth = 2;
-    tMainCtx.beginPath();
-    points.forEach((p, i) => {
-      const x = pad.left + i * dx;
-      const val = p.perSite[siteId] || 0;
-      const y = pad.top + plotH - (val / maxVal) * plotH;
-      i === 0 ? tMainCtx.moveTo(x, y) : tMainCtx.lineTo(x, y);
-    });
-    tMainCtx.stroke();
+    // Bar highlight
+    g.fillStyle = color + 'cc';
+    g.beginPath();
+    g.roundRect(pad.left, y, Math.max(barW, 2), barH / 3, [4, 4, 0, 0]);
+    g.fill();
+
+    // Label (left)
+    const name = s.cluster_name || siteId;
+    const shortName = name.length > 12 ? name.slice(0, 11) + '\u2026' : name;
+    g.fillStyle = color;
+    g.font = '11px Inter, system-ui, sans-serif';
+    g.textAlign = 'right';
+    g.textBaseline = 'middle';
+    g.fillText(shortName, pad.left - 6, y + barH / 2);
+
+    // Count (right of bar)
+    g.fillStyle = '#e0e6f0';
+    g.font = 'bold 12px Inter, system-ui, sans-serif';
+    g.textAlign = 'left';
+    g.fillText(String(count), pad.left + barW + 8, y + barH / 2);
   });
 
-  tMainCtx.fillStyle = '#6b7a90';
-  tMainCtx.font = '10px Inter, system-ui, sans-serif';
-  tMainCtx.textAlign = 'right';
-  for (let i = 0; i <= 4; i++) {
-    const val = Math.round(maxVal * (i / 4));
-    const y = pad.top + plotH - (i / 4) * plotH;
-    tMainCtx.fillText(val.toString(), pad.left - 8, y + 4);
-    tMainCtx.strokeStyle = 'rgba(30,42,58,0.5)';
-    tMainCtx.lineWidth = 0.5;
-    tMainCtx.beginPath();
-    tMainCtx.moveTo(pad.left, y);
-    tMainCtx.lineTo(pad.left + plotW, y);
-    tMainCtx.stroke();
-  }
-
-  tMainCtx.fillStyle = '#6b7a90';
-  tMainCtx.font = '10px Inter, system-ui, sans-serif';
-  tMainCtx.textAlign = 'center';
-  tMainCtx.fillText('Time (seconds)', pad.left + plotW / 2, h - 4);
-
-  const labelStep = Math.max(1, Math.floor(points.length / 6));
-  for (let i = 0; i < points.length; i += labelStep) {
-    const x = pad.left + i * dx;
-    tMainCtx.fillText(i.toString(), x, pad.top + plotH + 16);
-  }
+  // X-axis label
+  const unitLbl = workloadType === 'fractal' ? 'tiles' : 'tasks';
+  g.fillStyle = '#6b7a90';
+  g.font = '10px Inter, system-ui, sans-serif';
+  g.textAlign = 'center';
+  g.fillText(unitLbl + ' completed', w / 2, h - 6);
 }
 
-const tCanvas = document.getElementById('throughput-canvas');
-const tCtx = tCanvas.getContext('2d');
-
-function drawThroughputMini() {
-  const rect = tCanvas.getBoundingClientRect();
-  tCanvas.width = rect.width * window.devicePixelRatio;
-  tCanvas.height = rect.height * window.devicePixelRatio;
-  tCtx.scale(window.devicePixelRatio, window.devicePixelRatio);
+// --- Throughput chart (shared renderer for main + mini) ---
+function drawThroughputOn(canvasEl) {
+  const rect = canvasEl.getBoundingClientRect();
+  if (rect.width === 0 || rect.height === 0) return;
+  canvasEl.width = rect.width * window.devicePixelRatio;
+  canvasEl.height = rect.height * window.devicePixelRatio;
+  const g = canvasEl.getContext('2d');
+  g.scale(window.devicePixelRatio, window.devicePixelRatio);
   const w = rect.width, h = rect.height;
   const pad = 4;
   const plotH = h - pad;
 
-  tCtx.fillStyle = '#0a0e17';
-  tCtx.fillRect(0, 0, w, h);
+  g.fillStyle = '#0a0e17';
+  g.fillRect(0, 0, w, h);
 
   if (throughputHistory.length < 1) return;
 
@@ -939,35 +968,75 @@ function drawThroughputMini() {
     sites.forEach(siteId => {
       const val = p.perSite[siteId] || 0;
       if (val <= 0) return;
-      const barH = Math.max((val / maxVal) * plotH, 1);
-      tCtx.fillStyle = getSiteColor(siteId) + 'aa';
-      tCtx.fillRect(x, yBottom - barH, barW, barH);
-      yBottom -= barH;
+      const bH = Math.max((val / maxVal) * plotH, 1);
+      const color = getSiteColor(siteId);
+      g.fillStyle = color + 'aa';
+      g.fillRect(x, yBottom - bH, barW, bH);
+      yBottom -= bH;
     });
   });
+
+  if (points.length >= 2) {
+    sites.forEach(siteId => {
+      const color = getSiteColor(siteId);
+      g.beginPath();
+      points.forEach((p, i) => {
+        const x = i * (barW + gap) + barW / 2;
+        const val = p.perSite[siteId] || 0;
+        const y = h - (val / maxVal) * plotH;
+        if (i === 0) g.moveTo(x, y);
+        else g.lineTo(x, y);
+      });
+      g.strokeStyle = color;
+      g.lineWidth = 1.5;
+      g.stroke();
+    });
+  }
 }
 
-// =====================================================================
-// UI Update
-// =====================================================================
-function updateUI() {
-  const unit = workloadType === 'fractal' ? 'tiles' : 'tasks';
+function drawThroughput() {
+  if (activeTab === 'cluster') {
+    drawThroughputOn(document.getElementById('throughput-canvas'));
+  }
+  const miniCard = document.getElementById('throughput-mini-card');
+  if (miniCard.style.display !== 'none') {
+    drawThroughputOn(document.getElementById('throughput-mini-canvas'));
+  }
+}
 
-  // Progress
+// --- Draw all charts for current tab ---
+function drawAll() {
+  if (activeTab === 'cluster') {
+    drawTopology();
+    drawPlacement();
+    drawThroughput();
+  } else if (activeTab === 'fractal') {
+    resizeFractalCanvas();
+  }
+}
+
+function updateStats() {
+  const unitLabel = workloadType === 'fractal' ? 'tiles' : 'tasks';
   const pct = totalPlanned > 0 ? (totalCompleted / totalPlanned * 100) : 0;
   document.getElementById('progress-bar').style.width = Math.min(pct, 100) + '%';
   document.getElementById('progress-label').textContent =
-    `${totalCompleted} / ${totalPlanned} ${unit} (${Math.round(pct)}%)`;
+    `${totalCompleted} / ${totalPlanned} ${unitLabel} (${Math.round(pct)}%)`;
 
-  // Stats
-  document.getElementById('stat-nodes').textContent = Object.keys(nodes).length;
-  document.getElementById('stat-tasks').textContent = totalCompleted;
+  const el = startTime ? (Date.now() / 1000 - startTime) : 0;
+  document.getElementById('stat-elapsed').textContent =
+    el < 60 ? Math.round(el) + 's' : (el / 60).toFixed(1) + 'm';
 
-  const elapsed = startTime ? Math.round((Date.now() / 1000) - startTime) : 0;
-  document.getElementById('stat-elapsed').textContent = elapsed > 0 ? elapsed + 's' : '0s';
+  const tps = el > 0 ? (totalCompleted / el) : 0;
+  document.getElementById('stat-tps').textContent = tps.toFixed(1);
 
-  const tps = elapsed > 0 ? (totalCompleted / elapsed).toFixed(1) : '--';
-  document.getElementById('stat-tps').textContent = tps;
+  let totalMs = 0, totalCount = 0;
+  for (const s in siteStats) {
+    totalMs += siteStats[s].total_ms || 0;
+    totalCount += siteStats[s].task_count || 0;
+  }
+  document.getElementById('stat-avg-ms').textContent =
+    totalCount > 0 ? Math.round(totalMs / totalCount) : '0';
+  document.getElementById('stat-total').textContent = totalPlanned;
 
   // Status badge
   const badge = document.getElementById('status-badge');
@@ -981,16 +1050,16 @@ function updateUI() {
   };
   if (phase === 'waiting') {
     badge.className = 'status-badge waiting';
-    badge.innerHTML = `<div class="pulse" style="background:currentColor"></div> ${phaseLabels[phase]}`;
+    badge.innerHTML = '<div class="pulse" style="background:currentColor"></div> ' + (phaseLabels[phase] || phase);
   } else if (phase === 'complete') {
     badge.className = 'status-badge complete';
-    badge.innerHTML = `<div class="pulse" style="background:currentColor"></div> ${phaseLabels[phase]}`;
+    badge.innerHTML = '<div class="pulse" style="background:currentColor"></div> ' + (phaseLabels[phase] || phase);
   } else {
     badge.className = 'status-badge running';
-    badge.innerHTML = `<div class="pulse" style="background:currentColor"></div> ${phaseLabels[phase] || phase}`;
+    badge.innerHTML = '<div class="pulse" style="background:currentColor"></div> ' + (phaseLabels[phase] || phase);
   }
 
-  // Sites
+  // Update site cards
   const container = document.getElementById('sites-container');
   const siteIds = Object.keys(siteStats);
   if (siteIds.length > 0) {
@@ -1002,12 +1071,12 @@ function updateUI() {
       const scheduler = s.scheduler_type ? ` (${s.scheduler_type})` : '';
       const nodeCount = (s.node_ips || []).length || 1;
       const siteLabel = `Site ${idx + 1}`;
-      const avgMs = s.task_count > 0 ? Math.round(s.total_ms / s.task_count) : 0;
-      const countLabel = workloadType === 'fractal' ? 'tiles' : 'tasks';
+      const icon = '&#9900;';
+      const avgMs = (s.task_count || 0) > 0 ? Math.round(s.total_ms / s.task_count) : 0;
       const nodeInfo = `${nodeCount} ${nodeCount === 1 ? 'node' : 'nodes'}`;
       container.innerHTML += `
         <div class="site-card">
-          <div class="site-icon" style="background:${color}20; color:${color};">&#9900;</div>
+          <div class="site-icon" style="background:${color}20; color:${color};">${icon}</div>
           <div class="site-info">
             <div class="site-name">${name}${scheduler}</div>
             <div class="site-detail">${siteLabel} &middot; ${nodeInfo} &middot; ${avgMs}ms avg</div>
@@ -1023,7 +1092,7 @@ function updateUI() {
     const resultsCard = document.getElementById('results-card');
     const resultsContainer = document.getElementById('results-container');
     if (throughputResults || computeResults.length > 0 || scalingResults) {
-      resultsCard.style.display = '';
+      if (activeTab === 'cluster') resultsCard.style.display = '';
       let html = '';
       if (throughputResults) {
         html += `<div class="result-row"><span class="result-label">Throughput</span><span class="result-value">${throughputResults.tasks_per_sec} tasks/s</span></div>`;
@@ -1041,36 +1110,38 @@ function updateUI() {
     }
   }
 
-  // Throughput recording (all modes)
+  // Record throughput
+  const now = Date.now() / 1000;
   if (totalCompleted > 0) {
-    const now = Date.now() / 1000;
     if (lastThroughputCheck === null) {
       lastThroughputCheck = now;
       siteIds.forEach(s => { lastTaskCounts[s] = siteStats[s].task_count || 0; });
     } else if (now - lastThroughputCheck >= 1) {
+      const dt = now - lastThroughputCheck;
       const perSite = {};
       let total = 0;
       siteIds.forEach(s => {
         const current = siteStats[s].task_count || 0;
         const prev = lastTaskCounts[s] || 0;
-        const rate = current - prev;
+        const rate = (current - prev) / dt;
         perSite[s] = rate;
         total += rate;
         lastTaskCounts[s] = current;
       });
       throughputHistory.push({ ts: now, total, perSite });
       lastThroughputCheck = now;
-      if (activeTab === 'cluster') {
-        drawThroughputMini();
-        drawThroughputMain();
-      }
+      drawThroughput();
     }
+  }
+
+  // Redraw cluster charts if on cluster tab
+  if (activeTab === 'cluster') {
+    drawTopology();
+    drawPlacement();
   }
 }
 
-// =====================================================================
-// WebSocket
-// =====================================================================
+// WebSocket connection
 function connect() {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const basePath = location.pathname.replace(/\/$/, '');
@@ -1086,7 +1157,7 @@ function connect() {
       totalPlanned = msg.total_planned || 0;
       phase = msg.phase || 'waiting';
       mergeSiteStats(msg.site_stats);
-      Object.assign(nodes, msg.nodes || {});
+      Object.assign(rayNodes, msg.nodes || {});
 
       if (msg.workload_type) {
         workloadType = msg.workload_type;
@@ -1094,9 +1165,7 @@ function connect() {
         imageSize = msg.image_size || 0;
         updateChartLabels();
         if (workloadType === 'fractal') {
-          document.getElementById('tab-fractal').style.display = '';
-          document.getElementById('fractal-grid-label').textContent = gridSize + 'x' + gridSize;
-          document.getElementById('fractal-tile-label').textContent = imageSize;
+          document.getElementById('tab-fractal').classList.remove('hidden');
           initOffscreen();
         }
       }
@@ -1107,18 +1176,15 @@ function connect() {
           totalPlanned = data.total_planned;
           phase = data.phase;
           mergeSiteStats(data.site_stats);
-          Object.assign(nodes, data.nodes || {});
+          Object.assign(rayNodes, data.nodes || {});
 
           if (data.workload_type === 'fractal') {
             workloadType = 'fractal';
             gridSize = data.grid_size || gridSize;
             imageSize = data.image_size || imageSize;
             updateChartLabels();
-            document.getElementById('tab-fractal').style.display = '';
-            document.getElementById('fractal-grid-label').textContent = gridSize + 'x' + gridSize;
-            document.getElementById('fractal-tile-label').textContent = imageSize;
+            document.getElementById('tab-fractal').classList.remove('hidden');
             initOffscreen();
-            // Replay cached tiles
             if (data.fractal_tiles) {
               for (const [key, tile] of Object.entries(data.fractal_tiles)) {
                 if (tile.png_b64) {
@@ -1126,7 +1192,6 @@ function connect() {
                 }
               }
             }
-            // Auto-switch to fractal tab for late joiners
             switchTab('fractal');
           } else {
             throughputResults = data.throughput_results;
@@ -1140,24 +1205,29 @@ function connect() {
             throughputHistory.length = 0;
             const baseTs = startTime || (Date.now() / 1000 - data.elapsed_s);
             data.throughput_history.forEach(b => {
-              throughputHistory.push({ ts: baseTs + b.ts_offset, total: b.total, perSite: b.perSite });
+              throughputHistory.push({
+                ts: baseTs + b.ts_offset,
+                total: b.total,
+                perSite: b.perSite
+              });
             });
             lastThroughputCheck = Date.now() / 1000;
             Object.keys(siteStats).forEach(s => { lastTaskCounts[s] = siteStats[s].task_count || 0; });
+            drawThroughput();
           }
 
           drawAll();
-          updateUI();
+          updateStats();
         });
       }
     } else if (msg.type === 'worker') {
-      Object.assign(nodes, msg.nodes || {});
+      Object.assign(rayNodes, msg.nodes || {});
       mergeSiteStats(msg.site_stats);
       if (activeTab === 'cluster') drawTopology();
-      updateUI();
+      updateStats();
     } else if (msg.type === 'phase') {
       phase = msg.phase;
-      updateUI();
+      updateStats();
     } else if (msg.type === 'config') {
       if (msg.workload_type) {
         workloadType = msg.workload_type;
@@ -1166,23 +1236,20 @@ function connect() {
         totalPlanned = msg.total_tasks || msg.total_tiles || totalPlanned;
         updateChartLabels();
         if (workloadType === 'fractal') {
-          document.getElementById('tab-fractal').style.display = '';
-          document.getElementById('fractal-grid-label').textContent = gridSize + 'x' + gridSize;
-          document.getElementById('fractal-tile-label').textContent = imageSize;
+          document.getElementById('tab-fractal').classList.remove('hidden');
           initOffscreen();
         }
       } else {
         totalPlanned = msg.total_tasks || 0;
       }
-      updateUI();
+      updateStats();
     } else if (msg.type === 'task') {
       if (!startTime) startTime = Date.now() / 1000;
       totalCompleted = msg.total_completed;
       totalPlanned = msg.total_planned;
       phase = msg.phase;
       mergeSiteStats(msg.site_stats);
-      if (activeTab === 'cluster') drawPlacement();
-      updateUI();
+      updateStats();
     } else if (msg.type === 'tile') {
       if (!startTime) startTime = Date.now() / 1000;
       const wasFirst = totalCompleted === 0;
@@ -1190,14 +1257,13 @@ function connect() {
       totalPlanned = msg.total;
       mergeSiteStats(msg.site_stats);
       drawTileToOffscreen(msg.tile_x, msg.tile_y, msg.png_b64, msg.site_id);
-      // Auto-switch to fractal tab on first tile if on cluster tab
       if (wasFirst && activeTab === 'cluster') switchTab('fractal');
-      updateUI();
+      updateStats();
     } else if (msg.type === 'results') {
       if (msg.result_type === 'throughput') throughputResults = msg.data;
       else if (msg.result_type === 'compute') computeResults.push(msg.data);
       else if (msg.result_type === 'scaling') scalingResults = msg.data;
-      updateUI();
+      updateStats();
     }
   };
 
@@ -1207,21 +1273,24 @@ function connect() {
   };
 }
 
-function drawAll() {
-  if (activeTab === 'cluster') {
+// --- Topology animation loop ---
+let topoAnimFrame = null;
+function animateTopology() {
+  if (activeTab === 'cluster' && totalCompleted < totalPlanned && totalCompleted > 0) {
     drawTopology();
-    drawPlacement();
-    drawThroughputMain();
-    drawThroughputMini();
-  } else if (activeTab === 'fractal') {
-    resizeFractalCanvas();
-    renderFractalView();
   }
+  topoAnimFrame = requestAnimationFrame(animateTopology);
 }
 
-window.addEventListener('resize', drawAll);
+// Init
+window.addEventListener('resize', () => {
+  drawAll();
+});
+updateChartLabels();
+switchTab('cluster');
 connect();
-setInterval(updateUI, 1000);
+animateTopology();
+setInterval(() => updateStats(), 1000);
 </script>
 </body>
 </html>
