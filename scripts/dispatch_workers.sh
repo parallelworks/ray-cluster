@@ -284,6 +284,20 @@ dispatch_worker() {
 
     echo "[${site_id}] Tunnel IPs: ${NODE_TUNNEL_IPS[*]}"
 
+    # Kill any stale SSH tunnels using the same forward tunnel ports (from prior runs)
+    for j in $(seq 0 $((num_nodes - 1))); do
+        local stale_ip="${NODE_TUNNEL_IPS[$j]}"
+        local stale_port="${NODE_RAYLET_PORTS[$j]}"
+        # Find SSH processes forwarding to these IPs/ports
+        local stale_pids
+        stale_pids=$(ps aux 2>/dev/null | grep "ssh.*${stale_ip}:${stale_port}" | grep -v grep | awk '{print $2}' || true)
+        if [ -n "${stale_pids}" ]; then
+            echo "[${site_id}] Killing stale SSH tunnels: ${stale_pids}"
+            echo "${stale_pids}" | xargs kill 2>/dev/null || true
+            sleep 1
+        fi
+    done
+
     # Allocate 2 ports on the remote for reverse tunnels (dashboard + Ray GCS)
     local tunnel_dashboard_port
     tunnel_dashboard_port=$(${PW_CMD} ssh "${site_name}" \

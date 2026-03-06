@@ -508,6 +508,7 @@ let totalPlanned = 0;
 let startTime = null;
 const siteStats = {};
 const rayNodes = {};  // node_ip -> {site_id, num_cpus, ...}
+let headNode = {};    // {ip, cluster_name, scheduler_type} — coordinator hub
 const throughputHistory = [];
 let lastThroughputCheck = null;
 let lastTaskCounts = {};
@@ -738,24 +739,32 @@ function drawTopology() {
 
   const unitLabel = workloadType === 'fractal' ? 'tiles' : 'tasks';
 
-  // Draw Ray hub node at center-top
-  const cx = w / 2, cy = 40;
+  // Draw head node hub at center-top
+  const cx = w / 2, cy = 44;
+  const hubRadius = 28;
   g.beginPath();
-  g.arc(cx, cy, 20, 0, Math.PI * 2);
-  g.fillStyle = '#22d3ee22';
+  g.arc(cx, cy, hubRadius, 0, Math.PI * 2);
+  g.fillStyle = '#22d3ee12';
   g.fill();
   g.strokeStyle = '#22d3ee';
   g.lineWidth = 2;
   g.stroke();
+
+  // Head node label
+  const headName = (headNode.cluster_name || 'RAY HEAD');
+  const shortHead = headName.length > 14 ? headName.slice(0, 13) + '\u2026' : headName;
   g.fillStyle = '#22d3ee';
-  g.font = 'bold 10px Inter, system-ui, sans-serif';
+  g.font = 'bold 9px Inter, system-ui, sans-serif';
   g.textAlign = 'center';
   g.textBaseline = 'middle';
-  g.fillText('RAY', cx, cy);
+  g.fillText(shortHead, cx, cy - 6);
+  g.fillStyle = '#6b7a90';
+  g.font = '8px Inter, system-ui, sans-serif';
+  g.fillText('coordinator', cx, cy + 7);
 
   // Position site nodes below hub
   const siteSpacing = Math.min(200, (w - 80) / siteIds.length);
-  const siteY = cy + 80;
+  const siteY = cy + 90;
 
   siteIds.forEach((siteId, i) => {
     const s = siteStats[siteId];
@@ -764,7 +773,7 @@ function drawTopology() {
 
     // Connection line from hub to site
     g.beginPath();
-    g.moveTo(cx, cy + 20);
+    g.moveTo(cx, cy + hubRadius);
     g.lineTo(nodeX, siteY - 26);
     g.strokeStyle = color + '44';
     g.lineWidth = 2;
@@ -774,7 +783,7 @@ function drawTopology() {
     const progress = (Date.now() % 2000) / 2000;
     if ((s.task_count || 0) > 0 && totalCompleted < totalPlanned) {
       const dotX = cx + (nodeX - cx) * progress;
-      const dotY = (cy + 20) + (siteY - 26 - cy - 20) * progress;
+      const dotY = (cy + hubRadius) + (siteY - 26 - cy - hubRadius) * progress;
       g.beginPath();
       g.arc(dotX, dotY, 3, 0, Math.PI * 2);
       g.fillStyle = color;
@@ -1158,6 +1167,7 @@ function connect() {
       phase = msg.phase || 'waiting';
       mergeSiteStats(msg.site_stats);
       Object.assign(rayNodes, msg.nodes || {});
+      if (msg.head_node) headNode = msg.head_node;
 
       if (msg.workload_type) {
         workloadType = msg.workload_type;
@@ -1177,6 +1187,7 @@ function connect() {
           phase = data.phase;
           mergeSiteStats(data.site_stats);
           Object.assign(rayNodes, data.nodes || {});
+          if (data.head_node) headNode = data.head_node;
 
           if (data.workload_type === 'fractal') {
             workloadType = 'fractal';
@@ -1220,6 +1231,9 @@ function connect() {
           updateStats();
         });
       }
+    } else if (msg.type === 'head') {
+      headNode = msg.head_node || {};
+      if (activeTab === 'cluster') drawTopology();
     } else if (msg.type === 'worker') {
       Object.assign(rayNodes, msg.nodes || {});
       mergeSiteStats(msg.site_stats);

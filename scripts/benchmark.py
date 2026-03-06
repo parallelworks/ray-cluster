@@ -413,14 +413,9 @@ def main():
         cpus = n["Resources"].get("CPU", 0)
         print(f"  Node {ip}: {cpus} CPUs")
 
-    # Register head node as site-1 worker
-    post_json(f"{dashboard_url}/api/worker", {
-        "site_id": "site-1",
-        "worker_ip": ray_head_ip,
-        "num_cpus": int(sum(
-            n["Resources"].get("CPU", 0) for n in alive_nodes
-            if n.get("NodeManagerAddress") == ray_head_ip
-        )),
+    # Register head node info (coordinator only — not a compute site)
+    post_json(f"{dashboard_url}/api/head", {
+        "ip": ray_head_ip,
         "cluster_name": args.onprem_cluster_name,
         "scheduler_type": args.onprem_scheduler_type,
     })
@@ -428,11 +423,6 @@ def main():
     # Fetch site metadata from dashboard (includes worker registrations from dispatch_workers)
     # This maps site_id -> {cluster_name, scheduler_type} for ALL sites
     site_metadata = fetch_site_metadata(dashboard_url)
-    # Ensure head node metadata is included
-    site_metadata["site-1"] = {
-        "cluster_name": args.onprem_cluster_name,
-        "scheduler_type": args.onprem_scheduler_type,
-    }
     print(f"\nSite metadata: {json.dumps(site_metadata, indent=2)}")
 
     # Branch on workload type

@@ -24,6 +24,7 @@ state = {
     # Cluster topology
     "nodes": {},          # node_ip -> {site_id, num_cpus, cluster_name, scheduler_type, joined_at}
     "ray_head_ip": os.environ.get("RAY_HEAD_IP", ""),
+    "head_node": {},      # {ip, cluster_name, scheduler_type} — coordinator, not a compute site
     # Workload
     "workload_type": "benchmark",  # "benchmark" or "fractal"
     "phase": "waiting",   # waiting, throughput, compute, scaling, rendering, complete
@@ -47,6 +48,7 @@ connected_ws = []  # list of WebSocket
 
 def _reset_state():
     state["nodes"] = {}
+    state["head_node"] = {}
     state["workload_type"] = "benchmark"
     state["phase"] = "waiting"
     state["tasks"] = []
@@ -119,6 +121,23 @@ async def set_config(request: Request):
     state["grid_size"] = body.get("grid_size", 0)
     state["image_size"] = body.get("image_size", 0)
     await _broadcast({"type": "config", **body, "workload_type": state["workload_type"]})
+    return {"status": "ok"}
+
+
+@app.post("/api/head")
+async def register_head(request: Request):
+    """Register the Ray head node (coordinator only — not a compute site)."""
+    body = await request.json()
+    state["head_node"] = {
+        "ip": body.get("ip", ""),
+        "cluster_name": body.get("cluster_name", ""),
+        "scheduler_type": body.get("scheduler_type", ""),
+    }
+    state["ray_head_ip"] = body.get("ip", state["ray_head_ip"])
+    await _broadcast({
+        "type": "head",
+        "head_node": state["head_node"],
+    })
     return {"status": "ok"}
 
 
@@ -349,6 +368,7 @@ async def get_state():
     result = {
         "nodes": state["nodes"],
         "ray_head_ip": state["ray_head_ip"],
+        "head_node": state["head_node"],
         "workload_type": state["workload_type"],
         "phase": state["phase"],
         "total_completed": state["total_completed"],
@@ -404,6 +424,7 @@ async def websocket_endpoint(ws: WebSocket):
             "type": "init",
             "nodes": state["nodes"],
             "ray_head_ip": state["ray_head_ip"],
+            "head_node": state["head_node"],
             "workload_type": state["workload_type"],
             "phase": state["phase"],
             "total_completed": state["total_completed"],
