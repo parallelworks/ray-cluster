@@ -41,8 +41,9 @@ def detect_site(ray_head_ip):
 
     Site mapping:
       - ray_head_ip     -> site-1 (head node)
-      - 127.0.X.Y       -> site-X (multi-node: X = site index, Y = node within site)
-      - 127.0.0.X       -> site-X (legacy single-node)
+      - Non-tunnel IP   -> site-1 (local worker on same cluster as head)
+      - 127.0.X.Y       -> site-X (remote worker via SSH tunnel)
+      - 127.0.0.X       -> site-X (legacy single-node tunnel)
     """
     try:
         node_ip = ray.util.get_node_ip_address()
@@ -60,7 +61,8 @@ def detect_site(ray_head_ip):
             site_index = int(parts[2])
         return f"site-{site_index}", node_ip
     else:
-        return "site-2", node_ip
+        # Real (non-tunnel) IP that isn't the head — local SLURM worker on same site
+        return "site-1", node_ip
 
 
 # =============================================================================

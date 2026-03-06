@@ -1,6 +1,9 @@
 #!/bin/bash
 # start_ray_head.sh — Start Ray head node + custom dashboard
 #
+# In SLURM mode with N nodes, rank 0 becomes the head + dashboard and
+# ranks 1..N-1 become Ray workers. All within a single srun allocation.
+#
 # Creates coordination files:
 #   - HOSTNAME      — Dashboard hostname
 #   - SESSION_PORT  — Dashboard port
@@ -9,6 +12,7 @@
 #
 # Environment variables:
 #   RAY_VERSION  - Ray version to install (default: 2.40.0)
+#   RAY_NUM_CPUS - Optional CPU cap per node for Ray
 #   TARGETS_JSON - JSON array of target objects (for scheduler config)
 
 set -e
@@ -51,6 +55,7 @@ print('SLURM_PARTITION=' + slurm.get('partition', ''))
 print('SLURM_ACCOUNT=' + slurm.get('account', ''))
 print('SLURM_QOS=' + slurm.get('qos', ''))
 print('SLURM_TIME=' + slurm.get('time', '00:05:00'))
+print('SLURM_NODES=' + str(slurm.get('nodes', '1')))
 " 2>/dev/null) || true
 
         if [ -n "${SCHED_INFO}" ]; then
@@ -59,10 +64,10 @@ print('SLURM_TIME=' + slurm.get('time', '00:05:00'))
 
         if [ "${USE_SCHEDULER}" = "true" ] && [ "${SCHEDULER_TYPE}" = "slurm" ]; then
             echo "=========================================="
-            echo "SLURM detected for site 0 — submitting via srun"
+            echo "SLURM detected for site 0 — submitting ${SLURM_NODES} node(s) via srun"
             echo "=========================================="
 
-            # Run setup on login node first (installs Ray + dashboard deps)
+            # Run setup on login node first (shared filesystem — compute nodes reuse it)
             echo "Running setup on login node..."
             bash "${SCRIPT_DIR}/setup.sh"
 
@@ -89,18 +94,23 @@ print('SLURM_TIME=' + slurm.get('time', '00:05:00'))
                 fi
             }
 
-            # Build srun command
-            srun_cmd="srun --nodes=1 --ntasks=1"
+            # Build srun command — request ALL nodes (rank 0 = head, rank 1+ = workers)
+            srun_cmd="srun --nodes=${SLURM_NODES} --ntasks=${SLURM_NODES}"
             [ -n "${SLURM_PARTITION}" ] && srun_cmd="${srun_cmd} --partition=${SLURM_PARTITION}"
             [ -n "${SLURM_ACCOUNT}" ] && srun_cmd="${srun_cmd} --account=${SLURM_ACCOUNT}"
             [ -n "${SLURM_QOS}" ] && srun_cmd="${srun_cmd} --qos=${SLURM_QOS}"
             [ -n "${SLURM_TIME}" ] && srun_cmd="${srun_cmd} --time=${SLURM_TIME}"
 
             echo "Submitting: ${srun_cmd} bash scripts/start_ray_head.sh"
+            echo "  Rank 0 = Ray head + dashboard"
+            if [ "${SLURM_NODES}" -gt 1 ]; then
+                echo "  Ranks 1-$((SLURM_NODES - 1)) = Ray workers"
+            fi
 
             # Re-exec this script inside srun (skip the SLURM detection block)
             export _RAY_HEAD_INSIDE_SRUN=1
             export RAY_VERSION
+            export RAY_NUM_CPUS
             export TARGETS_JSON
             ${srun_cmd} bash "${SCRIPT_DIR}/start_ray_head.sh"
             exit $?
@@ -109,7 +119,141 @@ print('SLURM_TIME=' + slurm.get('time', '00:05:00'))
 fi
 
 # =============================================================================
-# Main logic (runs on login node or compute node via srun)
+# Main logic (runs on compute node via srun, or login node without scheduler)
+# Each srun task gets here; SLURM_PROCID determines head vs worker role.
+# =============================================================================
+
+# Pin BLAS/OpenMP to 1 thread per process so Ray tasks don't oversubscribe cores.
+export OMP_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+export OPENBLAS_NUM_THREADS=1
+
+# Determine Python from venv (shared filesystem — already installed by login node)
+VENV_DIR="${JOB_DIR}/.venv"
+if [ -f "${VENV_DIR}/bin/python" ]; then
+    PYTHON_CMD="${VENV_DIR}/bin/python"
+    source "${VENV_DIR}/bin/activate"
+else
+    PYTHON_CMD="python3"
+fi
+
+# =============================================================================
+# WORKER MODE: SLURM ranks 1+ wait for head and join as Ray workers
+# =============================================================================
+if [ -n "${SLURM_PROCID}" ] && [ "${SLURM_PROCID}" -gt 0 ]; then
+    echo "=========================================="
+    echo "Ray Worker (rank ${SLURM_PROCID}): $(date)"
+    echo "=========================================="
+    echo "Hostname: $(hostname)"
+
+    # Wait for head coordination files (written by rank 0 to shared filesystem)
+    echo "Waiting for Ray head to start..."
+    attempt=0
+    while [ ! -f "${JOB_DIR}/RAY_HEAD_IP" ]; do
+        sleep 2
+        attempt=$((attempt + 1))
+        if [ ${attempt} -gt 120 ]; then
+            echo "[ERROR] Timeout waiting for Ray head coordination files"
+            exit 1
+        fi
+    done
+
+    HEAD_IP=$(cat "${JOB_DIR}/RAY_HEAD_IP")
+    echo "Ray head IP: ${HEAD_IP}"
+
+    # Wait for Ray GCS to be reachable
+    echo "Waiting for Ray GCS at ${HEAD_IP}:${RAY_PORT}..."
+    attempt=0
+    while [ ${attempt} -le 60 ]; do
+        if ${PYTHON_CMD} -c "
+import socket, sys
+s = socket.socket()
+s.settimeout(3)
+try:
+    s.connect(('${HEAD_IP}', ${RAY_PORT}))
+    s.close()
+    sys.exit(0)
+except:
+    sys.exit(1)
+" 2>/dev/null; then
+            echo "Ray head reachable!"
+            break
+        fi
+        sleep 2
+        attempt=$((attempt + 1))
+    done
+
+    ray stop --force 2>/dev/null || true
+
+    WORKER_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+    NUM_CPUS="${RAY_NUM_CPUS:-$(nproc 2>/dev/null || echo 1)}"
+
+    echo "Starting Ray worker: address=${HEAD_IP}:${RAY_PORT}, CPUs=${NUM_CPUS}"
+    RAY_WORKER_ARGS=(--address="${HEAD_IP}:${RAY_PORT}")
+    if [ -n "${RAY_NUM_CPUS}" ]; then
+        RAY_WORKER_ARGS+=(--num-cpus="${RAY_NUM_CPUS}")
+    fi
+    ray start "${RAY_WORKER_ARGS[@]}"
+
+    # Register with dashboard (wait for SESSION_PORT to be written)
+    attempt=0
+    while [ ! -f "${JOB_DIR}/SESSION_PORT" ]; do
+        sleep 1
+        attempt=$((attempt + 1))
+        if [ ${attempt} -gt 60 ]; then break; fi
+    done
+    DASH_PORT=$(cat "${JOB_DIR}/SESSION_PORT" 2>/dev/null || echo "")
+
+    # Auto-detect cluster name
+    CLUSTER_NAME=""
+    SCHED_TYPE="slurm"
+    PW_CMD=""
+    for try_cmd in pw ~/pw/pw; do
+        command -v ${try_cmd} &>/dev/null && { PW_CMD=${try_cmd}; break; }
+        [ -x "${try_cmd}" ] && { PW_CMD=${try_cmd}; break; }
+    done
+    if [ -n "${PW_CMD}" ]; then
+        MY_HOST=$(hostname -s)
+        while IFS= read -r line; do
+            uri=$(echo "${line}" | awk '{print $1}')
+            cname="${uri##*/}"
+            if echo "${MY_HOST}" | grep -qi "${cname}"; then
+                CLUSTER_NAME="${cname}"
+                break
+            fi
+        done < <(${PW_CMD} cluster list 2>/dev/null | grep "^pw://${PW_USER}/" | grep "active")
+    fi
+    [ -z "${CLUSTER_NAME}" ] && CLUSTER_NAME="$(hostname -s)"
+
+    if [ -n "${DASH_PORT}" ]; then
+        curl -s -X POST "http://${HEAD_IP}:${DASH_PORT}/api/worker" \
+            -H "Content-Type: application/json" \
+            -d "{
+                \"site_id\": \"site-1\",
+                \"worker_ip\": \"${WORKER_IP}\",
+                \"num_cpus\": ${NUM_CPUS},
+                \"cluster_name\": \"${CLUSTER_NAME}\",
+                \"scheduler_type\": \"${SCHED_TYPE}\"
+            }" 2>/dev/null || echo "Note: Could not notify dashboard"
+    fi
+
+    echo "=========================================="
+    echo "Ray Worker RUNNING (rank ${SLURM_PROCID})"
+    echo "  Head: ${HEAD_IP}:${RAY_PORT}"
+    echo "  Worker IP: ${WORKER_IP}"
+    echo "  CPUs: ${NUM_CPUS}"
+    echo "=========================================="
+
+    # Keep alive
+    while true; do
+        ray status 2>/dev/null || echo "Worker ${SLURM_PROCID} health: $(date)"
+        sleep 30
+    done
+    exit 0
+fi
+
+# =============================================================================
+# HEAD MODE: rank 0 (or non-SLURM) — start Ray head + dashboard
 # =============================================================================
 echo "=========================================="
 echo "Ray Head + Dashboard Starting: $(date)"
@@ -125,18 +269,10 @@ if [ ! -f "${SCRIPT_DIR}/dashboard.py" ]; then
 fi
 
 # =============================================================================
-# Install Ray + dependencies
+# Install Ray + dependencies (may be a no-op if login node already did it)
 # =============================================================================
 bash "${SCRIPT_DIR}/setup.sh"
 
-# Determine Python from venv
-VENV_DIR="${JOB_DIR}/.venv"
-if [ -f "${VENV_DIR}/bin/python" ]; then
-    PYTHON_CMD="${VENV_DIR}/bin/python"
-    source "${VENV_DIR}/bin/activate"
-else
-    PYTHON_CMD="python3"
-fi
 echo "Python: ${PYTHON_CMD}"
 
 # Install dashboard dependencies
@@ -173,12 +309,6 @@ if [ -z "${HEAD_IP}" ] || [[ "${HEAD_IP}" == 127.* ]]; then
     HEAD_IP=$(ip -4 addr show | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v '^127\.' | head -n 1)
 fi
 echo "Ray head IP: ${HEAD_IP}"
-
-# Pin BLAS/OpenMP to 1 thread per process so Ray tasks don't oversubscribe cores.
-# Each Ray task uses 1 CPU slot; parallelism comes from Ray scheduling, not BLAS threading.
-export OMP_NUM_THREADS=1
-export MKL_NUM_THREADS=1
-export OPENBLAS_NUM_THREADS=1
 
 echo "Starting Ray head node..."
 RAY_START_ARGS=(
@@ -225,7 +355,7 @@ fi
 echo "Dashboard port: ${service_port}"
 
 # =============================================================================
-# Write coordination files
+# Write coordination files (shared filesystem — workers and login node read these)
 # =============================================================================
 hostname > HOSTNAME
 echo "${service_port}" > SESSION_PORT
