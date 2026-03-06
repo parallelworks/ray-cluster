@@ -24,6 +24,25 @@ trap "rm -rf ${WORK_DIR}" EXIT
 RAY_PORT=6379
 RAY_VERSION="${RAY_VERSION:-2.40.0}"
 
+# Auto-detect HEAD_RESOURCE_NAME if not set (template expression may not resolve in run blocks)
+if [ -z "${HEAD_RESOURCE_NAME}" ]; then
+    for cmd in pw ~/pw/pw; do
+        command -v $cmd &>/dev/null && { PW_CMD_TMP=$cmd; break; }
+        [ -x "$cmd" ] && { PW_CMD_TMP=$cmd; break; }
+    done
+    if [ -n "${PW_CMD_TMP}" ]; then
+        MY_SHORT_HOST=$(hostname -s)
+        while IFS= read -r line; do
+            uri=$(echo "$line" | awk '{print $1}')
+            cname="${uri##*/}"
+            if echo "${MY_SHORT_HOST}" | grep -qi "${cname}"; then
+                HEAD_RESOURCE_NAME="${cname}"
+                break
+            fi
+        done < <(${PW_CMD_TMP} cluster list 2>/dev/null | grep "^pw://${PW_USER}/" | grep "active")
+    fi
+fi
+
 # Find Python and pw
 PYTHON_CMD=""
 for cmd in python3 python; do
@@ -281,7 +300,7 @@ dispatch_worker() {
         NODE_RAYLET_PORTS+=($((base + 80)))
         NODE_OBJ_PORTS+=($((base + 81)))
         NODE_MIN_PORTS+=($((base)))
-        NODE_MAX_PORTS+=($((base + 49)))
+        NODE_MAX_PORTS+=($((base + 9)))
     done
 
     echo "[${site_name}] Tunnel IPs: ${NODE_TUNNEL_IPS[*]}"
