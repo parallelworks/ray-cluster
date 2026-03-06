@@ -1,7 +1,8 @@
 # yaml-language-server: $schema=https://activate.parallel.works/workflow.schema.json
 ---
-# Multi-Site Ray Cluster — unified compute fabric across N ACTIVATE resources
-# Site 0: Ray head node + dashboard. Sites 1..N: Ray workers via reverse SSH tunnel.
+# Multi-Site Ray Cluster — unified compute fabric across ACTIVATE resources
+# Head node runs the Ray coordinator + dashboard (no compute tasks).
+# Worker sites run Ray workers that connect back to the head.
 # Live dashboard shows cluster topology, task placement, and benchmark results.
 
 permissions:
@@ -13,14 +14,14 @@ sessions:
 
 jobs:
   # =============================================================================
-  # CHECKOUT — Clone scripts to first target (Ray head + dashboard host)
+  # CHECKOUT — Clone scripts to head node
   # =============================================================================
   checkout:
     steps:
       - name: Checkout scripts to head node
         uses: parallelworks/checkout
         ssh:
-          remoteHost: ${{ inputs.targets.0.resource.ip }}
+          remoteHost: ${{ inputs.head.resource.ip }}
         with:
           repo: https://github.com/parallelworks/ray-cluster-demo.git
           branch: main
@@ -28,22 +29,17 @@ jobs:
             - scripts
 
   # =============================================================================
-  # RAY HEAD — Start Ray head node + dashboard on first target
+  # RAY HEAD — Start Ray head node + dashboard (coordinator only)
   # =============================================================================
   start_ray_head:
     needs: [checkout]
     ssh:
-      remoteHost: ${{ inputs.targets.0.resource.ip }}
+      remoteHost: ${{ inputs.head.resource.ip }}
     steps:
       - name: Setup and start Ray head + dashboard
         run: |
           set -e
           export RAY_VERSION="${{ inputs.ray_settings.ray_version }}"
-          export TARGETS_JSON='${{ inputs.targets }}'
-          NUM_CPUS_SETTING="${{ inputs.ray_settings.num_cpus }}"
-          if [ "${NUM_CPUS_SETTING}" != "auto" ]; then
-            export RAY_NUM_CPUS="${NUM_CPUS_SETTING}"
-          fi
           bash scripts/start_ray_head.sh
 
   # =============================================================================
@@ -52,7 +48,7 @@ jobs:
   wait_for_ray:
     needs: [checkout]
     ssh:
-      remoteHost: ${{ inputs.targets.0.resource.ip }}
+      remoteHost: ${{ inputs.head.resource.ip }}
     steps:
       - name: Wait for Ray head and dashboard
         early-cancel: any-job-failed
@@ -116,7 +112,7 @@ jobs:
   update_session:
     needs: [wait_for_ray]
     ssh:
-      remoteHost: ${{ inputs.targets.0.resource.ip }}
+      remoteHost: ${{ inputs.head.resource.ip }}
     steps:
       - name: Get local port
         run: |
@@ -126,28 +122,34 @@ jobs:
       - name: Update session
         uses: parallelworks/update-session
         with:
-          target: ${{ inputs.targets.0.resource.id }}
+          target: ${{ inputs.head.resource.id }}
           name: ${{ sessions.session }}
           remoteHost: ${{ needs.wait_for_ray.outputs.HOSTNAME }}
           remotePort: ${{ needs.wait_for_ray.outputs.SESSION_PORT }}
           local_port: ${{ needs.update_session.outputs.local_port }}
 
   # =============================================================================
-  # DISPATCH WORKERS — Set up tunnels and start Ray workers on sites 1..N
+  # DISPATCH WORKERS — Start Ray workers on all compute sites
   # =============================================================================
   dispatch_workers:
     needs: [wait_for_ray, checkout]
     ssh:
-      remoteHost: ${{ inputs.targets.0.resource.ip }}
+      remoteHost: ${{ inputs.head.resource.ip }}
     steps:
-      - name: Dispatch workers to all remote sites
+      - name: Dispatch workers to compute sites
         run: |
           set -e
           export RAY_VERSION="${{ inputs.ray_settings.ray_version }}"
           export DASHBOARD_PORT=$(cat "${PW_PARENT_JOB_DIR}/SESSION_PORT")
           export RAY_HEAD_IP=$(cat "${PW_PARENT_JOB_DIR}/RAY_HEAD_IP")
           export PYTHON_VERSION=$(cat "${PW_PARENT_JOB_DIR}/PYTHON_VERSION")
-          export TARGETS_JSON='${{ inputs.targets }}'
+          export WORKERS_JSON='${{ inputs.workers }}'
+          export HEAD_RESOURCE_NAME='${{ inputs.head.resource.name }}'
+
+          NUM_CPUS_SETTING="${{ inputs.ray_settings.num_cpus }}"
+          if [ "${NUM_CPUS_SETTING}" != "auto" ]; then
+            export RAY_NUM_CPUS="${NUM_CPUS_SETTING}"
+          fi
 
           bash scripts/dispatch_workers.sh
 
@@ -157,7 +159,7 @@ jobs:
   run_benchmark:
     needs: [wait_for_ray]
     ssh:
-      remoteHost: ${{ inputs.targets.0.resource.ip }}
+      remoteHost: ${{ inputs.head.resource.ip }}
     steps:
       - name: Run distributed benchmark
         run: |
@@ -170,9 +172,9 @@ jobs:
           export GRID_SIZE="${{ inputs.workload_settings.grid_size }}"
           export IMAGE_SIZE="${{ inputs.workload_settings.image_size }}"
           export PALETTE="${{ inputs.workload_settings.palette }}"
-          # Count worker sites from targets JSON (total sites minus head)
-          export TARGETS_JSON='${{ inputs.targets }}'
-          export NUM_WORKER_SITES=$(python3 -c "import json,os; print(len(json.loads(os.environ['TARGETS_JSON']))-1)")
+          # Count worker sites
+          export WORKERS_JSON='${{ inputs.workers }}'
+          export NUM_WORKER_SITES=$(python3 -c "import json,os; print(len(json.loads(os.environ.get('WORKERS_JSON','[]'))))")
           bash scripts/run_benchmark.sh
 
   # =============================================================================
@@ -189,7 +191,6 @@ jobs:
           echo "Multi-Site Ray Cluster Demo Complete!"
           echo "=========================================="
           echo "  Ray Version: ${{ inputs.ray_settings.ray_version }}"
-          echo "  Benchmark Tasks: ${{ inputs.workload_settings.num_tasks }}"
           echo ""
           echo "  Dashboard: https://${PW_PLATFORM_HOST}${basepath}/"
           echo "  Local tunnel: ssh -L ${local_port}:localhost:${local_port} -o ProxyCommand=\"pw ssh --proxy-command %h\" ${PW_USER}@workspace"
@@ -200,64 +201,80 @@ jobs:
   execute:
     inputs:
       # -----------------------------------------------------------------------
-      # Targets (N compute sites)
+      # Head Node (coordinator + dashboard — no compute tasks)
       # -----------------------------------------------------------------------
-      targets:
+      head:
+        type: group
+        label: Head Node
+        items:
+          resource:
+            label: Resource
+            type: compute-clusters
+            include-workspace: false
+            tooltip: |
+              Runs the Ray coordinator and live dashboard.
+              No compute tasks run here — this is a pure coordinator node.
+              Select a login node, cloud VM, or any accessible resource.
+
+      # -----------------------------------------------------------------------
+      # Compute Workers
+      # -----------------------------------------------------------------------
+      workers:
         type: list
-        label: Compute Sites
+        label: Compute Workers
         min: 1
-        tooltip: Add one or more compute sites. The first site runs the Ray head node and dashboard. Additional sites connect Ray workers via reverse SSH tunnel.
+        tooltip: Add one or more compute worker sites. Workers connect to the head node and process Ray tasks. For same-site SLURM workers, select the same resource as the head.
         template:
           resource:
             label: Resource
             type: compute-clusters
             include-workspace: false
-            tooltip: Select a compute resource. The first resource hosts the Ray head and dashboard. Additional resources contribute Ray worker nodes.
+            tooltip: Select a compute resource for Ray workers.
 
           scheduler:
             type: boolean
             default: false
             label: Schedule Job?
-            hidden: ${{ inputs.targets.[index].resource.schedulerType == '' }}
+            hidden: ${{ inputs.workers.[index].resource.schedulerType == '' }}
             ignore: ${{ .hidden }}
             tooltip: |
-              Yes - Job is submitted to the scheduler using sbatch, qsub, etc.
-              No  - Job runs directly on the login/controller node via SSH.
+              Yes - Workers are submitted to the scheduler using sbatch, qsub, etc.
+              No  - Workers run directly on the login/controller node via SSH.
 
           slurm:
             type: group
             label: SLURM Directives
-            hidden: ${{ inputs.targets.[index].resource.schedulerType != 'slurm' || inputs.targets.[index].scheduler == false }}
+            hidden: ${{ inputs.workers.[index].resource.schedulerType != 'slurm' || inputs.workers.[index].scheduler == false }}
             collapsed: true
             items:
               is_disabled:
                 type: boolean
                 hidden: true
-                default: ${{ inputs.targets.[index].resource.schedulerType != 'slurm' || inputs.targets.[index].scheduler == false }}
-                ignore: ${{ inputs.targets.[index].resource.schedulerType != 'slurm' || inputs.targets.[index].scheduler == false }}
+                default: ${{ inputs.workers.[index].resource.schedulerType != 'slurm' || inputs.workers.[index].scheduler == false }}
+                ignore: ${{ inputs.workers.[index].resource.schedulerType != 'slurm' || inputs.workers.[index].scheduler == false }}
 
               partition:
                 type: slurm-partitions
                 label: Partition
                 optional: true
-                resource: ${{ inputs.targets.[index].resource }}
+                resource: ${{ inputs.workers.[index].resource }}
                 tooltip: Select a SLURM partition
-                ignore: ${{ inputs.targets.[index].resource.schedulerType != 'slurm' || inputs.targets.[index].scheduler == false }}
+                ignore: ${{ inputs.workers.[index].resource.schedulerType != 'slurm' || inputs.workers.[index].scheduler == false }}
 
               account:
                 label: Account
                 type: slurm-accounts
-                resource: ${{ inputs.targets.[index].resource }}
+                resource: ${{ inputs.workers.[index].resource }}
                 tooltip: SLURM account (--account)
                 optional: true
-                ignore: ${{ inputs.targets.[index].resource.schedulerType != 'slurm' || inputs.targets.[index].scheduler == false }}
+                ignore: ${{ inputs.workers.[index].resource.schedulerType != 'slurm' || inputs.workers.[index].scheduler == false }}
 
               qos:
                 label: QoS
                 type: slurm-qos
-                resource: ${{ inputs.targets.[index].resource }}
+                resource: ${{ inputs.workers.[index].resource }}
                 optional: true
-                ignore: ${{ inputs.targets.[index].resource.schedulerType != 'slurm' || inputs.targets.[index].scheduler == false }}
+                ignore: ${{ inputs.workers.[index].resource.schedulerType != 'slurm' || inputs.workers.[index].scheduler == false }}
 
               nodes:
                 label: Nodes
@@ -271,13 +288,15 @@ jobs:
                     label: "2 nodes"
                   - value: "4"
                     label: "4 nodes"
-                ignore: ${{ inputs.targets.[index].resource.schedulerType != 'slurm' || inputs.targets.[index].scheduler == false }}
+                  - value: "8"
+                    label: "8 nodes"
+                ignore: ${{ inputs.workers.[index].resource.schedulerType != 'slurm' || inputs.workers.[index].scheduler == false }}
 
               time:
                 label: Walltime
                 type: string
                 default: "00:05:00"
-                ignore: ${{ inputs.targets.[index].resource.schedulerType != 'slurm' || inputs.targets.[index].scheduler == false }}
+                ignore: ${{ inputs.workers.[index].resource.schedulerType != 'slurm' || inputs.workers.[index].scheduler == false }}
 
               scheduler_directives:
                 type: editor
@@ -289,21 +308,21 @@ jobs:
           pbs:
             type: group
             label: PBS Directives
-            hidden: ${{ inputs.targets.[index].resource.schedulerType != 'pbs' || inputs.targets.[index].scheduler == false }}
+            hidden: ${{ inputs.workers.[index].resource.schedulerType != 'pbs' || inputs.workers.[index].scheduler == false }}
             collapsed: true
             items:
               is_disabled:
                 type: boolean
                 hidden: true
-                default: ${{ inputs.targets.[index].resource.schedulerType != 'pbs' || inputs.targets.[index].scheduler == false }}
-                ignore: ${{ inputs.targets.[index].resource.schedulerType != 'pbs' || inputs.targets.[index].scheduler == false }}
+                default: ${{ inputs.workers.[index].resource.schedulerType != 'pbs' || inputs.workers.[index].scheduler == false }}
+                ignore: ${{ inputs.workers.[index].resource.schedulerType != 'pbs' || inputs.workers.[index].scheduler == false }}
 
               scheduler_directives:
                 label: PBS Directives
                 type: editor
                 tooltip: Type PBS scheduler directives
                 optional: true
-                ignore: ${{ inputs.targets.[index].resource.schedulerType != 'pbs' || inputs.targets.[index].scheduler == false }}
+                ignore: ${{ inputs.workers.[index].resource.schedulerType != 'pbs' || inputs.workers.[index].scheduler == false }}
 
       # -----------------------------------------------------------------------
       # Ray Settings
@@ -327,8 +346,8 @@ jobs:
 
           num_cpus:
             type: dropdown
-            label: CPUs per Node
-            tooltip: Number of CPUs Ray uses per node (limits concurrent tasks). Auto uses all available cores.
+            label: CPUs per Worker Node
+            tooltip: Number of CPUs each worker uses (limits concurrent tasks). Auto uses all available cores.
             default: "auto"
             options:
               - value: "auto"

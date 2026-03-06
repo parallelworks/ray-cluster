@@ -1,18 +1,18 @@
 #!/bin/bash
-# dispatch_workers.sh — Dispatch Ray workers across N remote compute sites
+# dispatch_workers.sh — Dispatch Ray workers to compute sites
 #
-# Runs on the head node (site 0). For each remote site (1..N):
-#   1. Allocates tunnel ports on remote
-#   2. Sets up bidirectional SSH tunnel (reverse for dashboard+GCS, forward for worker ports)
-#   3. Checks out repo, installs Ray, connects worker to head
-#   4. Keeps SSH session alive with health check loop
+# Runs on the head node. For each worker site:
+#   - Same site as head (local): submit via SLURM, workers connect directly
+#   - Different site (remote): SSH tunnel + remote dispatch
 #
 # Environment variables:
-#   TARGETS_JSON    - JSON array of target objects from workflow inputs
-#   DASHBOARD_PORT  - Dashboard port on this machine
-#   RAY_HEAD_IP     - Ray head node IP
-#   PYTHON_VERSION  - Python micro version for worker matching
-#   RAY_VERSION     - Ray version to install
+#   WORKERS_JSON       - JSON array of worker target objects from workflow inputs
+#   HEAD_RESOURCE_NAME - Name of the head resource (to detect same-site workers)
+#   DASHBOARD_PORT     - Dashboard port on this machine
+#   RAY_HEAD_IP        - Ray head node IP
+#   RAY_NUM_CPUS       - Optional CPU cap per worker node
+#   PYTHON_VERSION     - Python micro version for worker matching
+#   RAY_VERSION        - Ray version to install
 
 set -e
 
@@ -44,13 +44,14 @@ if [ -z "${PW_CMD}" ]; then
     exit 1
 fi
 
-# Parse targets JSON to get site list with scheduler config
+# Parse workers JSON to get site list with scheduler config
 SITES_JSON=$(${PYTHON_CMD} -c "
 import json, sys, os
 
-targets = json.loads(os.environ['TARGETS_JSON'])
+workers = json.loads(os.environ.get('WORKERS_JSON', '[]'))
+head_name = os.environ.get('HEAD_RESOURCE_NAME', '')
 sites = []
-for i, t in enumerate(targets):
+for i, t in enumerate(workers):
     res = t.get('resource', {})
     # Handle resource as string (CLI) or object (UI)
     if isinstance(res, str):
@@ -63,13 +64,16 @@ for i, t in enumerate(targets):
     if use_scheduler and not scheduler_type:
         scheduler_type = 'slurm'
     slurm = t.get('slurm', {}) or {}
+    # Detect if worker is on the same resource as head
+    is_local = (res.get('name', '') == head_name) if head_name else False
     sites.append({
         'index': i,
-        'name': res.get('name', 'site-%d' % i),
+        'name': res.get('name', 'worker-%d' % i),
         'ip': res.get('ip', ''),
         'user': res.get('user', ''),
         'scheduler_type': scheduler_type,
         'use_scheduler': use_scheduler,
+        'is_local': is_local,
         'slurm_partition': slurm.get('partition', ''),
         'slurm_account': slurm.get('account', ''),
         'slurm_qos': slurm.get('qos', ''),
@@ -79,22 +83,21 @@ for i, t in enumerate(targets):
 print(json.dumps(sites))
 ")
 
-NUM_SITES=$(echo "${SITES_JSON}" | ${PYTHON_CMD} -c "import sys,json;print(len(json.load(sys.stdin)))")
-NUM_REMOTE_SITES=$((NUM_SITES - 1))
+NUM_WORKERS=$(echo "${SITES_JSON}" | ${PYTHON_CMD} -c "import sys,json;print(len(json.load(sys.stdin)))")
 
 echo "=========================================="
 echo "Dispatch Workers: $(date)"
 echo "=========================================="
-echo "Total sites:   ${NUM_SITES}"
-echo "Remote sites:  ${NUM_REMOTE_SITES}"
+echo "Worker sites:  ${NUM_WORKERS}"
+echo "Head resource: ${HEAD_RESOURCE_NAME}"
 echo "Dashboard:     localhost:${DASHBOARD_PORT}"
 echo "Ray head:      ${RAY_HEAD_IP}:${RAY_PORT}"
 echo "Python:        ${PYTHON_VERSION}"
 echo "Ray version:   ${RAY_VERSION}"
 
-if [ "${NUM_REMOTE_SITES}" -eq 0 ]; then
+if [ "${NUM_WORKERS}" -eq 0 ]; then
     echo ""
-    echo "No remote sites — head-only mode. Skipping worker dispatch."
+    echo "No worker sites configured. Head-only mode."
     echo "=========================================="
     exit 0
 fi
@@ -125,7 +128,116 @@ while True:
     threading.Thread(target=proxy, args=(r,c), daemon=True).start()
 '
 
-# Worker dispatch function for a single remote site
+# =============================================================================
+# Local worker dispatch (same site as head — SLURM, no tunnels needed)
+# =============================================================================
+dispatch_local_workers() {
+    local site_index=$1
+    local site_name=$2
+    local scheduler_type=$3
+    local slurm_partition=$4
+    local slurm_account=$5
+    local slurm_qos=$6
+    local slurm_time=$7
+    local slurm_nodes=$8
+
+    local site_id="site-1"  # Local workers are part of the head's site
+
+    echo "[${site_id}] Dispatching ${slurm_nodes} local SLURM worker(s) on ${site_name}"
+
+    # Build srun command
+    local srun_cmd="srun --nodes=${slurm_nodes} --ntasks=${slurm_nodes}"
+    [ -n "${slurm_partition}" ] && srun_cmd="${srun_cmd} --partition=${slurm_partition}"
+    [ -n "${slurm_account}" ] && srun_cmd="${srun_cmd} --account=${slurm_account}"
+    [ -n "${slurm_qos}" ] && srun_cmd="${srun_cmd} --qos=${slurm_qos}"
+    [ -n "${slurm_time}" ] && srun_cmd="${srun_cmd} --time=${slurm_time}"
+
+    echo "[${site_id}] ${srun_cmd}"
+
+    # Write worker script to shared filesystem
+    local script_file="${WORK_DIR}/worker_local_${site_index}.sh"
+    cat > "${script_file}" <<WORKER_SCRIPT
+#!/bin/bash
+set -e
+
+HEAD_IP="${RAY_HEAD_IP}"
+DASH_PORT="${DASHBOARD_PORT}"
+JOB_DIR="${JOB_DIR}"
+RAY_NUM_CPUS_SETTING="${RAY_NUM_CPUS:-}"
+
+# Pin BLAS threading
+export OMP_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+export OPENBLAS_NUM_THREADS=1
+
+# Activate venv from shared filesystem
+if [ -f "\${JOB_DIR}/.venv/bin/activate" ]; then
+    source "\${JOB_DIR}/.venv/bin/activate"
+fi
+
+ray stop --force 2>/dev/null || true
+
+WORKER_IP=\$(hostname -I 2>/dev/null | awk '{print \$1}')
+NUM_CPUS=\${RAY_NUM_CPUS_SETTING:-\$(nproc 2>/dev/null || echo 1)}
+
+echo "Starting Ray worker on \$(hostname) (\${WORKER_IP}), connecting to \${HEAD_IP}:6379..."
+RAY_ARGS=(--address="\${HEAD_IP}:6379")
+if [ -n "\${RAY_NUM_CPUS_SETTING}" ]; then
+    RAY_ARGS+=(--num-cpus="\${RAY_NUM_CPUS_SETTING}")
+fi
+ray start "\${RAY_ARGS[@]}"
+
+# Auto-detect cluster name
+CLUSTER_NAME=""
+PW_CMD_LOCAL=""
+for try_cmd in pw ~/pw/pw; do
+    command -v \${try_cmd} &>/dev/null && { PW_CMD_LOCAL=\${try_cmd}; break; }
+    [ -x "\${try_cmd}" ] && { PW_CMD_LOCAL=\${try_cmd}; break; }
+done
+if [ -n "\${PW_CMD_LOCAL}" ]; then
+    MY_HOST=\$(hostname -s)
+    while IFS= read -r line; do
+        uri=\$(echo "\${line}" | awk '{print \$1}')
+        cname="\${uri##*/}"
+        if echo "\${MY_HOST}" | grep -qi "\${cname}"; then
+            CLUSTER_NAME="\${cname}"
+            break
+        fi
+    done < <(\${PW_CMD_LOCAL} cluster list 2>/dev/null | grep "^pw://\${PW_USER}/" | grep "active")
+fi
+[ -z "\${CLUSTER_NAME}" ] && CLUSTER_NAME="${site_name}"
+
+# Register with dashboard
+curl -s -X POST "http://\${HEAD_IP}:\${DASH_PORT}/api/worker" \
+    -H "Content-Type: application/json" \
+    -d "{
+        \"site_id\": \"site-1\",
+        \"worker_ip\": \"\${WORKER_IP}\",
+        \"num_cpus\": \${NUM_CPUS},
+        \"cluster_name\": \"\${CLUSTER_NAME}\",
+        \"scheduler_type\": \"slurm\"
+    }" 2>/dev/null || echo "Note: Could not notify dashboard"
+
+echo "=========================================="
+echo "Ray Worker RUNNING on \$(hostname)"
+echo "  Head: \${HEAD_IP}:6379"
+echo "  Worker IP: \${WORKER_IP}"
+echo "  CPUs: \${NUM_CPUS}"
+echo "=========================================="
+
+# Keep alive
+while true; do
+    ray status 2>/dev/null || echo "Worker health: \$(date)"
+    sleep 30
+done
+WORKER_SCRIPT
+
+    ${srun_cmd} bash "${script_file}" 2>&1 | sed "s/^/[${site_id}] /" &
+}
+
+# =============================================================================
+# Remote worker dispatch (different site — SSH tunnels required)
+# =============================================================================
 dispatch_worker() {
     local site_index=$1
     local site_name=$2
@@ -637,13 +749,15 @@ WORKER_SCRIPT
         sed "s/^/[${site_id}] /"
 }
 
-# Launch all remote sites in parallel
+# Launch all worker sites in parallel
 PIDS=()
-SITE_NAMES=()
+SITE_LABELS=()
+remote_site_index=2  # Remote sites start at site-2 (site-1 = head + local workers)
 
-for i in $(seq 1 $((NUM_SITES - 1))); do
+for i in $(seq 0 $((NUM_WORKERS - 1))); do
     site_name=$(echo "${SITES_JSON}" | ${PYTHON_CMD} -c "import sys,json;print(json.load(sys.stdin)[${i}]['name'])")
     site_ip=$(echo "${SITES_JSON}" | ${PYTHON_CMD} -c "import sys,json;print(json.load(sys.stdin)[${i}]['ip'])")
+    is_local=$(echo "${SITES_JSON}" | ${PYTHON_CMD} -c "import sys,json;print(str(json.load(sys.stdin)[${i}].get('is_local',False)).lower())")
     use_scheduler=$(echo "${SITES_JSON}" | ${PYTHON_CMD} -c "import sys,json;print(str(json.load(sys.stdin)[${i}].get('use_scheduler',False)).lower())")
     scheduler_type=$(echo "${SITES_JSON}" | ${PYTHON_CMD} -c "import sys,json;print(json.load(sys.stdin)[${i}].get('scheduler_type',''))")
     slurm_partition=$(echo "${SITES_JSON}" | ${PYTHON_CMD} -c "import sys,json;print(json.load(sys.stdin)[${i}].get('slurm_partition',''))")
@@ -652,24 +766,39 @@ for i in $(seq 1 $((NUM_SITES - 1))); do
     slurm_time=$(echo "${SITES_JSON}" | ${PYTHON_CMD} -c "import sys,json;print(json.load(sys.stdin)[${i}].get('slurm_time','00:05:00'))")
     slurm_nodes=$(echo "${SITES_JSON}" | ${PYTHON_CMD} -c "import sys,json;print(json.load(sys.stdin)[${i}].get('slurm_nodes','1'))")
 
-    dispatch_worker "${i}" "${site_name}" "${site_ip}" \
-        "${use_scheduler}" "${scheduler_type}" \
-        "${slurm_partition}" "${slurm_account}" "${slurm_qos}" "${slurm_time}" \
-        "${slurm_nodes}" &
-    PIDS+=($!)
-    SITE_NAMES+=("${site_name}")
+    if [ "${is_local}" = "true" ]; then
+        # Same resource as head — dispatch via local SLURM (no tunnels)
+        echo ""
+        echo "[site-1] Local worker site: ${site_name} (${slurm_nodes} node(s))"
+        dispatch_local_workers "${i}" "${site_name}" "${scheduler_type}" \
+            "${slurm_partition}" "${slurm_account}" "${slurm_qos}" "${slurm_time}" \
+            "${slurm_nodes}"
+        PIDS+=($!)
+        SITE_LABELS+=("[site-1] ${site_name}")
+    else
+        # Different resource — dispatch via SSH tunnel
+        echo ""
+        echo "[site-${remote_site_index}] Remote worker site: ${site_name} (${site_ip})"
+        dispatch_worker "${remote_site_index}" "${site_name}" "${site_ip}" \
+            "${use_scheduler}" "${scheduler_type}" \
+            "${slurm_partition}" "${slurm_account}" "${slurm_qos}" "${slurm_time}" \
+            "${slurm_nodes}" &
+        PIDS+=($!)
+        SITE_LABELS+=("[site-${remote_site_index}] ${site_name}")
+        remote_site_index=$((remote_site_index + 1))
+    fi
 done
 
 echo ""
-echo "All ${NUM_REMOTE_SITES} remote sites dispatched, waiting..."
+echo "All ${NUM_WORKERS} worker site(s) dispatched, waiting..."
 
 # Wait for all and collect exit codes
 FAILED=0
 for i in "${!PIDS[@]}"; do
     if wait "${PIDS[$i]}"; then
-        echo "[site-$((i+2))] ${SITE_NAMES[$i]}: COMPLETED"
+        echo "${SITE_LABELS[$i]}: COMPLETED"
     else
-        echo "[site-$((i+2))] ${SITE_NAMES[$i]}: FAILED (exit $?)"
+        echo "${SITE_LABELS[$i]}: FAILED (exit $?)"
         FAILED=$((FAILED + 1))
     fi
 done
@@ -677,7 +806,7 @@ done
 echo ""
 echo "=========================================="
 echo "Worker dispatch complete!"
-echo "  Remote sites: ${NUM_REMOTE_SITES}"
+echo "  Worker sites: ${NUM_WORKERS}"
 echo "  Failed: ${FAILED}"
 echo "=========================================="
 
