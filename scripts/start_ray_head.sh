@@ -169,6 +169,41 @@ if kill -0 ${SERVER_PID} 2>/dev/null; then
     echo "  Dashboard: port ${service_port}"
     echo "=========================================="
 
+    # Auto-detect cluster name and register head node with dashboard
+    CLUSTER_NAME=""
+    SCHEDULER_TYPE=""
+    PW_CMD=""
+    for cmd in pw ~/pw/pw; do
+        command -v $cmd &>/dev/null && { PW_CMD=$cmd; break; }
+        [ -x "$cmd" ] && { PW_CMD=$cmd; break; }
+    done
+    if [ -n "${PW_CMD}" ]; then
+        MY_HOST=$(hostname -s)
+        while IFS= read -r line; do
+            uri=$(echo "$line" | awk '{print $1}')
+            ctype=$(echo "$line" | awk '{print $3}')
+            name="${uri##*/}"
+            if echo "${MY_HOST}" | grep -qi "${name}"; then
+                CLUSTER_NAME="${name}"
+                case "${ctype}" in
+                    *slurm*) SCHEDULER_TYPE="slurm" ;;
+                    *pbs*)   SCHEDULER_TYPE="pbs" ;;
+                    existing) SCHEDULER_TYPE="ssh" ;;
+                    *)       SCHEDULER_TYPE="${ctype}" ;;
+                esac
+                break
+            fi
+        done < <(${PW_CMD} cluster list 2>/dev/null | grep "^pw://${PW_USER}/" | grep "active")
+    fi
+    [ -z "${CLUSTER_NAME}" ] && CLUSTER_NAME="$(hostname -s)"
+    [ -z "${SCHEDULER_TYPE}" ] && SCHEDULER_TYPE="ssh"
+
+    echo "Registering head node: ${CLUSTER_NAME} (${SCHEDULER_TYPE})"
+    curl -s -X POST "http://localhost:${service_port}/api/head" \
+        -H "Content-Type: application/json" \
+        -d "{\"ip\": \"${HEAD_IP}\", \"cluster_name\": \"${CLUSTER_NAME}\", \"scheduler_type\": \"${SCHEDULER_TYPE}\"}" \
+        2>/dev/null || echo "Warning: Could not register head node with dashboard"
+
     # Keep SSH session alive
     while kill -0 ${SERVER_PID} 2>/dev/null; do
         # Periodic health check
