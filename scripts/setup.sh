@@ -134,8 +134,7 @@ if install_uv; then
     # The [default] extra adds virtualenv (for runtime envs) and other optional
     # packages that increase download size and can fail on restricted networks.
     # Our custom dashboard and core Ray functionality work fine without them.
-    ${UV_BIN} pip install --python "${VENV_DIR}/bin/python" \
-        --read-timeout 120 \
+    UV_HTTP_TIMEOUT=120 ${UV_BIN} pip install --python "${VENV_DIR}/bin/python" \
         "ray==${RAY_VERSION}" numpy
 else
     if [ "${NEED_PYTHON_BOOTSTRAP}" = "true" ]; then
