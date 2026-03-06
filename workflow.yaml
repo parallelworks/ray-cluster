@@ -246,7 +246,6 @@ jobs:
             type: group
             label: SLURM Directives
             hidden: ${{ inputs.workers.[index].resource.schedulerType != 'slurm' || inputs.workers.[index].scheduler == false }}
-            collapsed: true
             items:
               is_disabled:
                 type: boolean
@@ -310,7 +309,6 @@ jobs:
             type: group
             label: PBS Directives
             hidden: ${{ inputs.workers.[index].resource.schedulerType != 'pbs' || inputs.workers.[index].scheduler == false }}
-            collapsed: true
             items:
               is_disabled:
                 type: boolean
