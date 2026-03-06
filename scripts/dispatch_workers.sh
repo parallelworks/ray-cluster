@@ -657,12 +657,21 @@ fi
 # Stop any existing Ray and join cluster
 ray stop --force 2>/dev/null || true
 
-echo "Connecting to Ray head at 127.0.0.1:${tunnel_ray_port}..."
+# Start a proxy that listens on all interfaces (0.0.0.0) and forwards to the
+# SSH tunnel at 127.0.0.1. Ray's GCS client resolves loopback to the machine's
+# real IP on HPC systems, so we need the proxy to accept connections on any interface.
+PROXY_RAY_PORT=\$(python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()")
+echo "Starting GCS proxy: 0.0.0.0:\${PROXY_RAY_PORT} -> 127.0.0.1:${tunnel_ray_port}"
+python3 -c '${PROXY_PY_CODE}' \${PROXY_RAY_PORT} "127.0.0.1:${tunnel_ray_port}" &
+PROXY_PID=\$!
+sleep 0.5
+
+echo "Connecting to Ray head via proxy at 127.0.0.1:\${PROXY_RAY_PORT}..."
 echo "  Node IP advertised: ${ip} (via SSH forward tunnel)"
 echo "  Raylet port: ${raylet}"
 echo "  Object manager port: ${obj}"
 echo "  Worker process ports: ${min_port}-${max_port}"
-ray start --address="127.0.0.1:${tunnel_ray_port}" \\
+ray start --address="127.0.0.1:\${PROXY_RAY_PORT}" \\
     --node-ip-address=${ip} \\
     --node-manager-port=${raylet} \\
     --object-manager-port=${obj} \\
@@ -731,7 +740,7 @@ curl -s -X POST "\${DASHBOARD_URL}/api/worker" \\
 
 echo "=========================================="
 echo "Ray Worker RUNNING"
-echo "  Connected to: 127.0.0.1:${tunnel_ray_port}"
+echo "  Connected to: 127.0.0.1:\${PROXY_RAY_PORT} (proxy -> 127.0.0.1:${tunnel_ray_port})"
 echo "  Worker IP: ${ip}"
 echo "  CPUs: \${NUM_CPUS}"
 echo "=========================================="
