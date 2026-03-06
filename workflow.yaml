@@ -210,11 +210,11 @@ jobs:
           resource:
             label: Resource
             type: compute-clusters
-            include-workspace: false
+            include-workspace: true
             tooltip: |
               Runs the Ray coordinator and live dashboard.
               No compute tasks run here — this is a pure coordinator node.
-              Select a login node, cloud VM, or any accessible resource.
+              Select a login node, cloud VM, or the user workspace.
 
       # -----------------------------------------------------------------------
       # Compute Workers
