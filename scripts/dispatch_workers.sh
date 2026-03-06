@@ -391,14 +391,14 @@ NUM_NODES=${num_nodes}
 PROXY_RAY_PORT=\$(python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()")
 PROXY_DASH_PORT=\$(python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()")
 
-python3 -c '${PROXY_PY_CODE}' \${PROXY_RAY_PORT} "localhost:${tunnel_ray_port}" "\${WORK}/.proxy_ray_pid" &
+python3 -c '${PROXY_PY_CODE}' \${PROXY_RAY_PORT} "127.0.0.1:${tunnel_ray_port}" "\${WORK}/.proxy_ray_pid" &
 sleep 0.5
-python3 -c '${PROXY_PY_CODE}' \${PROXY_DASH_PORT} "localhost:${tunnel_dashboard_port}" "\${WORK}/.proxy_dash_pid" &
+python3 -c '${PROXY_PY_CODE}' \${PROXY_DASH_PORT} "127.0.0.1:${tunnel_dashboard_port}" "\${WORK}/.proxy_dash_pid" &
 sleep 0.5
 
 echo "Login node proxies:"
-echo "  Ray GCS: \${LOGIN_HOST}:\${PROXY_RAY_PORT} -> localhost:${tunnel_ray_port}"
-echo "  Dashboard: \${LOGIN_HOST}:\${PROXY_DASH_PORT} -> localhost:${tunnel_dashboard_port}"
+echo "  Ray GCS: \${LOGIN_HOST}:\${PROXY_RAY_PORT} -> 127.0.0.1:${tunnel_ray_port}"
+echo "  Dashboard: \${LOGIN_HOST}:\${PROXY_DASH_PORT} -> 127.0.0.1:${tunnel_dashboard_port}"
 
 # Write per-node configurations
 mkdir -p "\${WORK}/nodeinfo"
@@ -626,7 +626,7 @@ if [ -f "\${VENV_DIR}/bin/python" ]; then
 fi
 
 # Wait for Ray head to be reachable via tunnel
-echo "Waiting for Ray head at localhost:${tunnel_ray_port}..."
+echo "Waiting for Ray head at 127.0.0.1:${tunnel_ray_port}..."
 attempt=1
 while [ \${attempt} -le 60 ]; do
     if python3 -c "
@@ -657,12 +657,12 @@ fi
 # Stop any existing Ray and join cluster
 ray stop --force 2>/dev/null || true
 
-echo "Connecting to Ray head at localhost:${tunnel_ray_port}..."
+echo "Connecting to Ray head at 127.0.0.1:${tunnel_ray_port}..."
 echo "  Node IP advertised: ${ip} (via SSH forward tunnel)"
 echo "  Raylet port: ${raylet}"
 echo "  Object manager port: ${obj}"
 echo "  Worker process ports: ${min_port}-${max_port}"
-ray start --address="localhost:${tunnel_ray_port}" \\
+ray start --address="127.0.0.1:${tunnel_ray_port}" \\
     --node-ip-address=${ip} \\
     --node-manager-port=${raylet} \\
     --object-manager-port=${obj} \\
@@ -718,7 +718,7 @@ fi
 
 echo "Detected cluster: \${CLUSTER_NAME} (\${SCHED_TYPE})"
 
-DASHBOARD_URL="http://localhost:${tunnel_dashboard_port}"
+DASHBOARD_URL="http://127.0.0.1:${tunnel_dashboard_port}"
 curl -s -X POST "\${DASHBOARD_URL}/api/worker" \\
     -H "Content-Type: application/json" \\
     -d "{
@@ -731,7 +731,7 @@ curl -s -X POST "\${DASHBOARD_URL}/api/worker" \\
 
 echo "=========================================="
 echo "Ray Worker RUNNING"
-echo "  Connected to: localhost:${tunnel_ray_port}"
+echo "  Connected to: 127.0.0.1:${tunnel_ray_port}"
 echo "  Worker IP: ${ip}"
 echo "  CPUs: \${NUM_CPUS}"
 echo "=========================================="
@@ -779,7 +779,7 @@ for i in $(seq 0 $((NUM_WORKERS - 1))); do
         # Different resource — dispatch via SSH tunnel
         echo ""
         echo "[site-${remote_site_index}] Remote worker site: ${site_name} (${site_ip})"
-        dispatch_worker "${remote_site_index}" "${site_name}" "${site_ip}" \
+        dispatch_worker "$((remote_site_index - 1))" "${site_name}" "${site_ip}" \
             "${use_scheduler}" "${scheduler_type}" \
             "${slurm_partition}" "${slurm_account}" "${slurm_qos}" "${slurm_time}" \
             "${slurm_nodes}" &
