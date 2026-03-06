@@ -46,6 +46,17 @@ fi
 export RAY_ADDRESS="${RAY_HEAD_IP}:6379"
 echo "Ray address:    ${RAY_ADDRESS}"
 
+# Fix DASHBOARD_URL when benchmark runs on a different host than the dashboard
+# (e.g., login node in SLURM while dashboard is on compute node)
+MY_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+if [[ "${DASHBOARD_URL}" == *"localhost"* || "${DASHBOARD_URL}" == *"127.0.0.1"* ]] && [ "${MY_IP}" != "${RAY_HEAD_IP}" ]; then
+    DASH_PORT=$(echo "${DASHBOARD_URL}" | grep -oP ':\K[0-9]+')
+    if [ -n "${DASH_PORT}" ]; then
+        DASHBOARD_URL="http://${RAY_HEAD_IP}:${DASH_PORT}"
+        echo "Adjusted Dashboard URL: ${DASHBOARD_URL} (benchmark on different host than dashboard)"
+    fi
+fi
+
 # Wait for workers to join the cluster (at least 2 nodes = head + 1 worker)
 # In head-only mode (1 site), skip waiting for workers
 NUM_WORKER_SITES="${NUM_WORKER_SITES:-0}"
