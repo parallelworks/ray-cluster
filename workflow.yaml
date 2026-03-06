@@ -201,6 +201,112 @@ jobs:
   execute:
     inputs:
       # -----------------------------------------------------------------------
+      # Compute Workers
+      # -----------------------------------------------------------------------
+      workers:
+        type: list
+        label: Compute Workers
+        min: 1
+        tooltip: Add one or more compute worker sites. Workers connect to the head node and process Ray tasks. For same-site SLURM workers, select the same resource as the head.
+        template:
+          resource:
+            label: Resource
+            type: compute-clusters
+            include-workspace: false
+            tooltip: Select a compute resource for Ray workers.
+
+          scheduler:
+            type: boolean
+            default: false
+            label: Schedule Job?
+            hidden: ${{ inputs.workers.[index].resource.schedulerType != 'slurm' && inputs.workers.[index].resource.schedulerType != 'pbs' }}
+            ignore: ${{ .hidden }}
+            tooltip: |
+              Yes - Workers are submitted to the scheduler using sbatch, qsub, etc.
+              No  - Workers run directly on the login/controller node via SSH.
+
+          slurm:
+            type: group
+            label: SLURM Directives
+            hidden: ${{ inputs.workers.[index].resource.schedulerType != 'slurm' || inputs.workers.[index].scheduler == false }}
+            items:
+              is_disabled:
+                type: boolean
+                hidden: true
+                default: ${{ inputs.workers.[index].resource.schedulerType != 'slurm' || inputs.workers.[index].scheduler == false }}
+                ignore: ${{ inputs.workers.[index].resource.schedulerType != 'slurm' || inputs.workers.[index].scheduler == false }}
+
+              partition:
+                type: slurm-partitions
+                label: Partition
+                optional: true
+                resource: ${{ inputs.workers.[index].resource }}
+                tooltip: Select a SLURM partition
+                ignore: ${{ inputs.workers.[index].resource.schedulerType != 'slurm' || inputs.workers.[index].scheduler == false }}
+
+              account:
+                label: Account
+                type: slurm-accounts
+                resource: ${{ inputs.workers.[index].resource }}
+                tooltip: SLURM account (--account)
+                optional: true
+                ignore: ${{ inputs.workers.[index].resource.schedulerType != 'slurm' || inputs.workers.[index].scheduler == false }}
+
+              qos:
+                label: QoS
+                type: slurm-qos
+                resource: ${{ inputs.workers.[index].resource }}
+                optional: true
+                ignore: ${{ inputs.workers.[index].resource.schedulerType != 'slurm' || inputs.workers.[index].scheduler == false }}
+
+              nodes:
+                label: Nodes
+                type: dropdown
+                default: "1"
+                tooltip: Number of compute nodes to request. Each node runs a Ray worker.
+                options:
+                  - value: "1"
+                    label: "1 node"
+                  - value: "2"
+                    label: "2 nodes"
+                  - value: "4"
+                    label: "4 nodes"
+                  - value: "8"
+                    label: "8 nodes"
+                ignore: ${{ inputs.workers.[index].resource.schedulerType != 'slurm' || inputs.workers.[index].scheduler == false }}
+
+              time:
+                label: Walltime
+                type: string
+                default: "00:05:00"
+                ignore: ${{ inputs.workers.[index].resource.schedulerType != 'slurm' || inputs.workers.[index].scheduler == false }}
+
+              scheduler_directives:
+                type: editor
+                label: Additional Directives
+                optional: true
+                hidden: true
+                ignore: true
+
+          pbs:
+            type: group
+            label: PBS Directives
+            hidden: ${{ inputs.workers.[index].resource.schedulerType != 'pbs' || inputs.workers.[index].scheduler == false }}
+            items:
+              is_disabled:
+                type: boolean
+                hidden: true
+                default: ${{ inputs.workers.[index].resource.schedulerType != 'pbs' || inputs.workers.[index].scheduler == false }}
+                ignore: ${{ inputs.workers.[index].resource.schedulerType != 'pbs' || inputs.workers.[index].scheduler == false }}
+
+              scheduler_directives:
+                label: PBS Directives
+                type: editor
+                tooltip: Type PBS scheduler directives
+                optional: true
+                ignore: ${{ inputs.workers.[index].resource.schedulerType != 'pbs' || inputs.workers.[index].scheduler == false }}
+
+      # -----------------------------------------------------------------------
       # Head Node (coordinator + dashboard — no compute tasks)
       # -----------------------------------------------------------------------
       head:
@@ -346,109 +452,3 @@ jobs:
                 label: "500x500 (default)"
               - value: "1000"
                 label: "1000x1000 (compute-heavy)"
-
-      # -----------------------------------------------------------------------
-      # Compute Workers
-      # -----------------------------------------------------------------------
-      workers:
-        type: list
-        label: Compute Workers
-        min: 1
-        tooltip: Add one or more compute worker sites. Workers connect to the head node and process Ray tasks. For same-site SLURM workers, select the same resource as the head.
-        template:
-          resource:
-            label: Resource
-            type: compute-clusters
-            include-workspace: false
-            tooltip: Select a compute resource for Ray workers.
-
-          scheduler:
-            type: boolean
-            default: false
-            label: Schedule Job?
-            hidden: ${{ inputs.workers.[index].resource.schedulerType != 'slurm' && inputs.workers.[index].resource.schedulerType != 'pbs' }}
-            ignore: ${{ .hidden }}
-            tooltip: |
-              Yes - Workers are submitted to the scheduler using sbatch, qsub, etc.
-              No  - Workers run directly on the login/controller node via SSH.
-
-          slurm:
-            type: group
-            label: SLURM Directives
-            hidden: ${{ inputs.workers.[index].resource.schedulerType != 'slurm' || inputs.workers.[index].scheduler == false }}
-            items:
-              is_disabled:
-                type: boolean
-                hidden: true
-                default: ${{ inputs.workers.[index].resource.schedulerType != 'slurm' || inputs.workers.[index].scheduler == false }}
-                ignore: ${{ inputs.workers.[index].resource.schedulerType != 'slurm' || inputs.workers.[index].scheduler == false }}
-
-              partition:
-                type: slurm-partitions
-                label: Partition
-                optional: true
-                resource: ${{ inputs.workers.[index].resource }}
-                tooltip: Select a SLURM partition
-                ignore: ${{ inputs.workers.[index].resource.schedulerType != 'slurm' || inputs.workers.[index].scheduler == false }}
-
-              account:
-                label: Account
-                type: slurm-accounts
-                resource: ${{ inputs.workers.[index].resource }}
-                tooltip: SLURM account (--account)
-                optional: true
-                ignore: ${{ inputs.workers.[index].resource.schedulerType != 'slurm' || inputs.workers.[index].scheduler == false }}
-
-              qos:
-                label: QoS
-                type: slurm-qos
-                resource: ${{ inputs.workers.[index].resource }}
-                optional: true
-                ignore: ${{ inputs.workers.[index].resource.schedulerType != 'slurm' || inputs.workers.[index].scheduler == false }}
-
-              nodes:
-                label: Nodes
-                type: dropdown
-                default: "1"
-                tooltip: Number of compute nodes to request. Each node runs a Ray worker.
-                options:
-                  - value: "1"
-                    label: "1 node"
-                  - value: "2"
-                    label: "2 nodes"
-                  - value: "4"
-                    label: "4 nodes"
-                  - value: "8"
-                    label: "8 nodes"
-                ignore: ${{ inputs.workers.[index].resource.schedulerType != 'slurm' || inputs.workers.[index].scheduler == false }}
-
-              time:
-                label: Walltime
-                type: string
-                default: "00:05:00"
-                ignore: ${{ inputs.workers.[index].resource.schedulerType != 'slurm' || inputs.workers.[index].scheduler == false }}
-
-              scheduler_directives:
-                type: editor
-                label: Additional Directives
-                optional: true
-                hidden: true
-                ignore: true
-
-          pbs:
-            type: group
-            label: PBS Directives
-            hidden: ${{ inputs.workers.[index].resource.schedulerType != 'pbs' || inputs.workers.[index].scheduler == false }}
-            items:
-              is_disabled:
-                type: boolean
-                hidden: true
-                default: ${{ inputs.workers.[index].resource.schedulerType != 'pbs' || inputs.workers.[index].scheduler == false }}
-                ignore: ${{ inputs.workers.[index].resource.schedulerType != 'pbs' || inputs.workers.[index].scheduler == false }}
-
-              scheduler_directives:
-                label: PBS Directives
-                type: editor
-                tooltip: Type PBS scheduler directives
-                optional: true
-                ignore: ${{ inputs.workers.[index].resource.schedulerType != 'pbs' || inputs.workers.[index].scheduler == false }}
