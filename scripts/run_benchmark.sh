@@ -57,33 +57,10 @@ if [[ "${DASHBOARD_URL}" == *"localhost"* || "${DASHBOARD_URL}" == *"127.0.0.1"*
     fi
 fi
 
-# Wait for workers to join the cluster (at least 2 nodes = head + 1 worker)
-# In head-only mode (1 site), skip waiting for workers
+# No waiting for workers — Ray schedules tasks as nodes join.
+# Tasks submitted immediately; workers pick them up as they come online.
 NUM_WORKER_SITES="${NUM_WORKER_SITES:-0}"
-MIN_NODES=$((NUM_WORKER_SITES + 1))
-echo "Expected minimum nodes: ${MIN_NODES} (1 head + ${NUM_WORKER_SITES} worker sites)"
-
-if [ "${MIN_NODES}" -gt 1 ]; then
-    echo "Waiting for Ray workers to join..."
-    attempt=1
-    MAX_ATTEMPTS=90
-    while [ ${attempt} -le ${MAX_ATTEMPTS} ]; do
-        NODE_COUNT=$(ray status 2>/dev/null | grep -c "node_" || echo "0")
-        echo "[${attempt}/${MAX_ATTEMPTS}] Ray nodes: ${NODE_COUNT}"
-        if [ "${NODE_COUNT}" -ge "${MIN_NODES}" ]; then
-            echo "Workers joined! ${NODE_COUNT} nodes in cluster."
-            break
-        fi
-        sleep 5
-        ((attempt++))
-    done
-
-    if [ ${attempt} -gt ${MAX_ATTEMPTS} ]; then
-        echo "[WARN] Timeout waiting for workers. Running with available nodes."
-    fi
-else
-    echo "Head-only mode — no remote workers to wait for."
-fi
+echo "Expected worker sites: ${NUM_WORKER_SITES} (tasks start immediately, workers join dynamically)"
 
 ray status || echo "[WARN] ray status failed (head may not be reachable from login node)"
 
