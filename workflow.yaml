@@ -160,8 +160,8 @@ jobs:
           export DASHBOARD_URL="http://localhost:$(cat ${PW_PARENT_JOB_DIR}/SESSION_PORT)"
           export RAY_HEAD_IP=$(cat "${PW_PARENT_JOB_DIR}/RAY_HEAD_IP")
           export WORKLOAD_TYPE="${{ inputs.workload_settings.workload_type }}"
-          export NUM_TASKS="${{ inputs.benchmark_settings.num_tasks }}"
-          export MATRIX_SIZE="${{ inputs.benchmark_settings.matrix_size }}"
+          export NUM_TASKS="${{ inputs.workload_settings.num_tasks }}"
+          export MATRIX_SIZE="${{ inputs.workload_settings.matrix_size }}"
           export GRID_SIZE="${{ inputs.workload_settings.grid_size }}"
           export IMAGE_SIZE="${{ inputs.workload_settings.image_size }}"
           export PALETTE="${{ inputs.workload_settings.palette }}"
@@ -184,7 +184,7 @@ jobs:
           echo "Multi-Site Ray Cluster Demo Complete!"
           echo "=========================================="
           echo "  Ray Version: ${{ inputs.ray_settings.ray_version }}"
-          echo "  Benchmark Tasks: ${{ inputs.benchmark_settings.num_tasks }}"
+          echo "  Benchmark Tasks: ${{ inputs.workload_settings.num_tasks }}"
           echo ""
           echo "  Dashboard: https://${PW_PLATFORM_HOST}${basepath}/"
           echo "  Local tunnel: ssh -L ${local_port}:localhost:${local_port} -o ProxyCommand=\"pw ssh --proxy-command %h\" ${PW_USER}@workspace"
@@ -331,12 +331,12 @@ jobs:
             type: dropdown
             label: Workload Type
             tooltip: Choose between mathematical benchmark (charts) or fractal rendering (visual canvas)
-            default: benchmark
+            default: fractal
             options:
-              - value: benchmark
-                label: "Mathematical Benchmark"
               - value: fractal
                 label: "Fractal Rendering"
+              - value: benchmark
+                label: "Mathematical Benchmark"
 
           grid_size:
             type: dropdown
@@ -381,20 +381,12 @@ jobs:
               - value: cosmic
                 label: Cosmic Purple
 
-      # -----------------------------------------------------------------------
-      # Benchmark Settings
-      # -----------------------------------------------------------------------
-      benchmark_settings:
-        type: group
-        label: Benchmark Settings
-        hidden: ${{ inputs.workload_settings.workload_type != 'benchmark' }}
-        ignore: ${{ .hidden }}
-        items:
           num_tasks:
             type: dropdown
             label: Task Count
             tooltip: Number of benchmark tasks to distribute across the Ray cluster
             default: "500"
+            hidden: ${{ inputs.workload_settings.workload_type != 'benchmark' }}
             options:
               - value: "100"
                 label: "100 tasks (quick test)"
@@ -407,9 +399,10 @@ jobs:
 
           matrix_size:
             type: dropdown
-            label: Matrix Size (CPU Compute)
+            label: Matrix Size
             tooltip: Size of matrices for CPU compute benchmark (NxN)
             default: "500"
+            hidden: ${{ inputs.workload_settings.workload_type != 'benchmark' }}
             options:
               - value: "200"
                 label: "200x200 (fast)"
