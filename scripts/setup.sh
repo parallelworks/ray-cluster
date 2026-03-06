@@ -130,8 +130,13 @@ if install_uv; then
     if [ ! -d "${VENV_DIR}" ]; then
         ${UV_BIN} venv "${VENV_DIR}" --python "${UV_PYTHON}"
     fi
+    # Install ray without [default] extras to minimize dependencies.
+    # The [default] extra adds virtualenv (for runtime envs) and other optional
+    # packages that increase download size and can fail on restricted networks.
+    # Our custom dashboard and core Ray functionality work fine without them.
     ${UV_BIN} pip install --python "${VENV_DIR}/bin/python" \
-        "ray[default]==${RAY_VERSION}" numpy
+        --timeout 120 \
+        "ray==${RAY_VERSION}" numpy
 else
     if [ "${NEED_PYTHON_BOOTSTRAP}" = "true" ]; then
         echo "[ERROR] Cannot install uv and system Python is too old ($(${PYTHON_CMD} --version 2>&1))"
@@ -145,7 +150,7 @@ else
     fi
     "${VENV_DIR}/bin/python" -m pip install --quiet --upgrade pip
     "${VENV_DIR}/bin/python" -m pip install --quiet \
-        "ray[default]==${RAY_VERSION}" numpy
+        "ray==${RAY_VERSION}" numpy
 fi
 
 # Verify
