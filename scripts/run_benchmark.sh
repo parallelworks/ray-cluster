@@ -42,6 +42,10 @@ else
     PYTHON_CMD="python3"
 fi
 
+# Point ray CLI at the head node (needed when running on login node with SLURM)
+export RAY_ADDRESS="${RAY_HEAD_IP}:6379"
+echo "Ray address:    ${RAY_ADDRESS}"
+
 # Wait for workers to join the cluster (at least 2 nodes = head + 1 worker)
 # In head-only mode (1 site), skip waiting for workers
 NUM_WORKER_SITES="${NUM_WORKER_SITES:-0}"
@@ -70,7 +74,7 @@ else
     echo "Head-only mode — no remote workers to wait for."
 fi
 
-ray status
+ray status || echo "[WARN] ray status failed (head may not be reachable from login node)"
 
 # Auto-detect cluster name and scheduler type for head node (site-1)
 # Uses pw cluster list and hostname matching, same pattern as burst-render-demo

@@ -380,7 +380,9 @@ def main():
     matrix_size = args.matrix_size
 
     # Initialize Ray (connect to existing cluster)
-    ray.init(address="auto")
+    # RAY_ADDRESS env var is set by run_benchmark.sh to reach the head node
+    ray_address = os.environ.get("RAY_ADDRESS", "auto")
+    ray.init(address=ray_address)
 
     # Report cluster info
     nodes = ray.nodes()
