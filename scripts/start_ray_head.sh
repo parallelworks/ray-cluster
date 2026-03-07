@@ -54,7 +54,7 @@ echo "Python: ${PYTHON_CMD}"
 ${PYTHON_CMD} -c "import fastapi" 2>/dev/null || {
     echo "Installing dashboard dependencies..."
     UV_CMD=""
-    for uv_path in "${JOB_DIR}/.uv/uv" "$HOME/.local/bin/uv" "$HOME/.cargo/bin/uv"; do
+    for uv_path in "$HOME/pw/software/.uv/uv" "$HOME/.local/bin/uv" "$HOME/.cargo/bin/uv"; do
         if [ -x "${uv_path}" ]; then UV_CMD="${uv_path}"; break; fi
     done
     if [ -z "${UV_CMD}" ]; then command -v uv &>/dev/null && UV_CMD="uv"; fi

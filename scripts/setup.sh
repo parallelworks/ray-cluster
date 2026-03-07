@@ -146,13 +146,13 @@ if install_uv; then
     # Fall back to ray (no extras) if it fails on restricted networks.
     echo "Attempting ray[default] install (includes Ray dashboard)..."
     if UV_HTTP_TIMEOUT=120 ${UV_BIN} pip install --python "${VENV_DIR}/bin/python" \
-        "ray[default]==${RAY_VERSION}" numpy 2>&1; then
+        "ray[default]==${RAY_VERSION}" numpy fastapi uvicorn websockets httpx 2>&1; then
         echo "ray[default] installed successfully"
     else
         echo ""
         echo "[WARN] ray[default] failed — retrying with minimal ray (no built-in dashboard)"
         UV_HTTP_TIMEOUT=120 ${UV_BIN} pip install --python "${VENV_DIR}/bin/python" \
-            "ray==${RAY_VERSION}" numpy
+            "ray==${RAY_VERSION}" numpy fastapi uvicorn websockets httpx
     fi
 else
     if [ "${NEED_PYTHON_BOOTSTRAP}" = "true" ]; then
@@ -167,10 +167,10 @@ else
     fi
     "${VENV_DIR}/bin/python" -m pip install --quiet --upgrade pip
     "${VENV_DIR}/bin/python" -m pip install --quiet \
-        "ray[default]==${RAY_VERSION}" numpy 2>&1 || {
+        "ray[default]==${RAY_VERSION}" numpy fastapi uvicorn websockets httpx 2>&1 || {
         echo "[WARN] ray[default] failed — retrying with minimal ray"
         "${VENV_DIR}/bin/python" -m pip install --quiet \
-            "ray==${RAY_VERSION}" numpy
+            "ray==${RAY_VERSION}" numpy fastapi uvicorn websockets httpx
     }
 fi
 
