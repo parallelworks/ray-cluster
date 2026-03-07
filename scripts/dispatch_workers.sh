@@ -350,6 +350,8 @@ dispatch_worker() {
         -o UserKnownHostsFile=/dev/null
         -o ExitOnForwardFailure=yes
         -o ServerAliveInterval=15
+        -o ServerAliveCountMax=4
+        -o TCPKeepAlive=yes
         -o "ProxyCommand=${PW_CMD} ssh --proxy-command %h"
         # Reverse tunnels: remote can reach head node
         -R "${tunnel_dashboard_port}:localhost:${DASHBOARD_PORT}"
@@ -421,6 +423,14 @@ fi
 
 LOGIN_HOST=\$(hostname)
 NUM_NODES=${num_nodes}
+
+# Kill stale proxy processes from prior cancelled runs
+echo 'Cleaning up stale proxies from prior runs...'
+for pf in "\${WORK}"/.proxy_*.pid; do
+    [ -f "\${pf}" ] && kill \$(cat "\${pf}" 2>/dev/null) 2>/dev/null && rm -f "\${pf}" || true
+done
+pkill -f "proxy.*\${WORK}" 2>/dev/null || true
+sleep 1
 
 # Start TCP proxies for reverse tunnels (Ray GCS + dashboard accessible to compute nodes)
 PROXY_RAY_PORT=\$(python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()")
@@ -617,6 +627,12 @@ done
 
 echo "All \${NUM_NODES} node(s) reported. Starting forward tunnel proxies..."
 
+# Kill stale forward proxies from prior runs
+for pf in "\${WORK}"/.proxy_fwd_*.pid; do
+    [ -f "\${pf}" ] && kill \$(cat "\${pf}" 2>/dev/null) 2>/dev/null && rm -f "\${pf}" || true
+done
+sleep 0.5
+
 # Start forward tunnel proxies: login_node:port -> compute_node:port
 # The SSH -L tunnels go: head:127.0.X.Y:port -> login:port
 # We proxy: login:port -> compute_node:port
@@ -716,6 +732,13 @@ fi
 # Stop any existing Ray and clean up stale sessions
 ray stop --force 2>/dev/null || true
 rm -rf /tmp/ray/session_* 2>/dev/null || true
+
+# Kill stale proxy processes from prior cancelled runs
+echo 'Cleaning up stale proxies from prior runs...'
+for pf in "\${WORK}"/.proxy_*.pid; do
+    [ -f "\${pf}" ] && kill \$(cat "\${pf}" 2>/dev/null) 2>/dev/null && rm -f "\${pf}" || true
+done
+pkill -f "proxy.*\${WORK}" 2>/dev/null || true
 sleep 1
 
 # Start a proxy that listens on all interfaces (0.0.0.0) and forwards to the
