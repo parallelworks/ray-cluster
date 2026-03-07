@@ -493,6 +493,7 @@ dispatch_worker() {
 
     # Build SSH args with bidirectional tunnels
     local SSH_ARGS=(
+        -v
         -i ~/.ssh/pwcli
         -o StrictHostKeyChecking=no
         -o UserKnownHostsFile=/dev/null
@@ -786,30 +787,42 @@ echo "All \${NUM_NODES} node(s) reported."
 # Reverse tunnel is established via SSH -R on the main connection (workspace side).
 # Verify it works by connecting to localhost:tunnel_ray_port on this host.
 echo "Verifying reverse tunnel to head node (localhost:${tunnel_ray_port} -> head:${RAY_PORT})..."
+echo "Port status before verification:"
+ss -tlnp 2>/dev/null | grep ":${tunnel_ray_port}" || echo "  Port ${tunnel_ray_port} not in ss output"
 TUNNEL_OK=false
-for t_attempt in \$(seq 1 60); do
-    if python3 -c "
+for t_attempt in \$(seq 1 30); do
+    RESULT=\$(python3 -c "
 import socket, sys
 s = socket.socket()
-s.settimeout(3)
+s.settimeout(5)
 try:
     s.connect(('127.0.0.1', ${tunnel_ray_port}))
+    # Try to read a byte (Ray GCS should respond to connection)
+    s.settimeout(2)
+    try:
+        d = s.recv(1)
+        print('connected+recv=%d' % len(d))
+    except socket.timeout:
+        print('connected+timeout_on_recv')
     s.close()
     sys.exit(0)
-except:
+except Exception as e:
+    print('error: %s' % e)
     sys.exit(1)
-" 2>/dev/null; then
-        echo "Reverse tunnel verified — Ray GCS reachable via 127.0.0.1:${tunnel_ray_port}"
+" 2>&1)
+    EXIT=\$?
+    if [ \${EXIT} -eq 0 ]; then
+        echo "Reverse tunnel verified (\${RESULT}) — Ray GCS reachable via 127.0.0.1:${tunnel_ray_port}"
         TUNNEL_OK=true
         break
     fi
-    [ \$((t_attempt % 10)) -eq 0 ] && echo "  Waiting for reverse tunnel... (\${t_attempt}/60, \$((t_attempt * 2))s elapsed)"
+    [ \$((t_attempt % 5)) -eq 0 ] && echo "  Attempt \${t_attempt}/30: \${RESULT}"
     sleep 2
 done
 
 if [ "\${TUNNEL_OK}" != "true" ]; then
     echo "[ERROR] Cannot reach head node through SSH -R reverse tunnel on port ${tunnel_ray_port}"
-    echo "  This means the remote sshd may block reverse port forwarding (AllowTcpForwarding)."
+    echo "  Last result: \${RESULT}"
     ss -tlnp 2>/dev/null | grep ":${tunnel_ray_port}" || echo "  Port ${tunnel_ray_port} not listening"
     kill \${SRUN_PID} 2>/dev/null || true
     exit 1
@@ -921,30 +934,42 @@ sleep 1
 # Reverse tunnel is established via SSH -R on the main connection (workspace side).
 # Verify it works by connecting to localhost:tunnel_ray_port on this host.
 echo "Verifying reverse tunnel to head node (localhost:${tunnel_ray_port} -> head:${RAY_PORT})..."
+echo "Port status before verification:"
+ss -tlnp 2>/dev/null | grep ":${tunnel_ray_port}" || echo "  Port ${tunnel_ray_port} not in ss output"
 TUNNEL_OK=false
-for t_attempt in \$(seq 1 60); do
-    if python3 -c "
+for t_attempt in \$(seq 1 30); do
+    RESULT=\$(python3 -c "
 import socket, sys
 s = socket.socket()
-s.settimeout(3)
+s.settimeout(5)
 try:
     s.connect(('127.0.0.1', ${tunnel_ray_port}))
+    # Try to read a byte (Ray GCS should respond to connection)
+    s.settimeout(2)
+    try:
+        d = s.recv(1)
+        print('connected+recv=%d' % len(d))
+    except socket.timeout:
+        print('connected+timeout_on_recv')
     s.close()
     sys.exit(0)
-except:
+except Exception as e:
+    print('error: %s' % e)
     sys.exit(1)
-" 2>/dev/null; then
-        echo "Reverse tunnel verified — Ray GCS reachable via 127.0.0.1:${tunnel_ray_port}"
+" 2>&1)
+    EXIT=\$?
+    if [ \${EXIT} -eq 0 ]; then
+        echo "Reverse tunnel verified (\${RESULT}) — Ray GCS reachable via 127.0.0.1:${tunnel_ray_port}"
         TUNNEL_OK=true
         break
     fi
-    [ \$((t_attempt % 10)) -eq 0 ] && echo "  Waiting for reverse tunnel... (\${t_attempt}/60, \$((t_attempt * 2))s elapsed)"
+    [ \$((t_attempt % 5)) -eq 0 ] && echo "  Attempt \${t_attempt}/30: \${RESULT}"
     sleep 2
 done
 
 if [ "\${TUNNEL_OK}" != "true" ]; then
     echo "[ERROR] Cannot reach head node through SSH -R reverse tunnel on port ${tunnel_ray_port}"
-    echo "  This means the remote sshd may block reverse port forwarding (AllowTcpForwarding)."
+    echo "  Last result: \${RESULT}"
     ss -tlnp 2>/dev/null | grep ":${tunnel_ray_port}" || echo "  Port ${tunnel_ray_port} not listening"
     exit 1
 fi
@@ -1270,30 +1295,42 @@ sleep 1
 # Reverse tunnel is established via SSH -R on the main connection (workspace side).
 # Verify it works by connecting to localhost:tunnel_ray_port on this host.
 echo "Verifying reverse tunnel to head node (localhost:${tunnel_ray_port} -> head:${RAY_PORT})..."
+echo "Port status before verification:"
+ss -tlnp 2>/dev/null | grep ":${tunnel_ray_port}" || echo "  Port ${tunnel_ray_port} not in ss output"
 TUNNEL_OK=false
-for t_attempt in \$(seq 1 60); do
-    if python3 -c "
+for t_attempt in \$(seq 1 30); do
+    RESULT=\$(python3 -c "
 import socket, sys
 s = socket.socket()
-s.settimeout(3)
+s.settimeout(5)
 try:
     s.connect(('127.0.0.1', ${tunnel_ray_port}))
+    # Try to read a byte (Ray GCS should respond to connection)
+    s.settimeout(2)
+    try:
+        d = s.recv(1)
+        print('connected+recv=%d' % len(d))
+    except socket.timeout:
+        print('connected+timeout_on_recv')
     s.close()
     sys.exit(0)
-except:
+except Exception as e:
+    print('error: %s' % e)
     sys.exit(1)
-" 2>/dev/null; then
-        echo "Reverse tunnel verified — Ray GCS reachable via 127.0.0.1:${tunnel_ray_port}"
+" 2>&1)
+    EXIT=\$?
+    if [ \${EXIT} -eq 0 ]; then
+        echo "Reverse tunnel verified (\${RESULT}) — Ray GCS reachable via 127.0.0.1:${tunnel_ray_port}"
         TUNNEL_OK=true
         break
     fi
-    [ \$((t_attempt % 10)) -eq 0 ] && echo "  Waiting for reverse tunnel... (\${t_attempt}/60, \$((t_attempt * 2))s elapsed)"
+    [ \$((t_attempt % 5)) -eq 0 ] && echo "  Attempt \${t_attempt}/30: \${RESULT}"
     sleep 2
 done
 
 if [ "\${TUNNEL_OK}" != "true" ]; then
     echo "[ERROR] Cannot reach head node through SSH -R reverse tunnel on port ${tunnel_ray_port}"
-    echo "  This means the remote sshd may block reverse port forwarding (AllowTcpForwarding)."
+    echo "  Last result: \${RESULT}"
     ss -tlnp 2>/dev/null | grep ":${tunnel_ray_port}" || echo "  Port ${tunnel_ray_port} not listening"
     exit 1
 fi
