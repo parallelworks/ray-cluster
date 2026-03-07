@@ -1618,7 +1618,7 @@ done
 echo ""
 echo "All ${NUM_WORKERS} worker site(s) dispatched, waiting..."
 
-# Wait for all and collect exit codes
+# Wait for all background dispatch processes (SSH sessions, log streamers)
 FAILED=0
 for i in "${!PIDS[@]}"; do
     if wait "${PIDS[$i]}"; then
@@ -1628,6 +1628,29 @@ for i in "${!PIDS[@]}"; do
         FAILED=$((FAILED + 1))
     fi
 done
+
+# Keep alive while any tracked SLURM jobs are still running.
+# This prevents the step from exiting (and triggering cleanup)
+# while workers are active.
+if [ -f "${JOB_DIR}/slurm_jobids" ]; then
+    echo "Monitoring SLURM jobs..."
+    while true; do
+        ALL_DONE=true
+        while IFS= read -r jid; do
+            [ -z "${jid}" ] && continue
+            JOB_STATE=$(squeue -j "${jid}" -h -o "%T" 2>/dev/null || echo "")
+            if [ -n "${JOB_STATE}" ]; then
+                ALL_DONE=false
+                break
+            fi
+        done < "${JOB_DIR}/slurm_jobids"
+        if [ "${ALL_DONE}" = "true" ]; then
+            echo "All SLURM jobs completed."
+            break
+        fi
+        sleep 15
+    done
+fi
 
 echo ""
 echo "=========================================="
