@@ -1655,12 +1655,15 @@ PYTHON_CMD="${VENV_DIR}/bin/python"
 echo "Monitoring cluster — will exit when all workers disconnect..."
 CONSECUTIVE_ZERO=0
 while true; do
-    # Count worker CPUs via Ray API (head has 0 CPUs, workers have > 0)
-    WORKER_CPUS=$(${PYTHON_CMD} -c "
-import ray, sys
+    # Count worker CPUs via Ray dashboard API (avoids creating DRIVER jobs)
+    WORKER_CPUS=$(curl -s --max-time 5 "http://${RAY_HEAD_IP}:8265/nodes?view=summary" 2>/dev/null | \
+        ${PYTHON_CMD} -c "
+import json, sys
 try:
-    ray.init(address='${RAY_HEAD_IP}:6379', ignore_reinit_error=True)
-    cpus = ray.cluster_resources().get('CPU', 0)
+    data = json.load(sys.stdin)
+    nodes = data.get('data', {}).get('summary', [])
+    cpus = sum(n.get('raylet', {}).get('resourcesTotal', {}).get('CPU', 0)
+               for n in nodes if n.get('raylet', {}).get('state', '') == 'ALIVE')
     print(int(cpus))
 except:
     print(0)
