@@ -485,7 +485,7 @@ ray.shutdown()</pre>
 pw ssh workspace
 
 # Activate the Ray environment
-source ~/pw/jobs/*/ray-cluster-demo/.venv/bin/activate
+source ~/pw/software/ray-*/bin/activate
 
 # Set the Ray address
 export RAY_ADDRESS="&lt;RAY_HEAD_IP&gt;:6379"
@@ -717,7 +717,7 @@ function updateClusterOnlyInfo() {
   }
   const directCmd = document.getElementById('direct-cmd');
   if (directCmd && headIp !== '-') {
-    directCmd.textContent = `# SSH to the head node\npw ssh workspace\n\n# Activate the Ray environment\nsource ~/pw/jobs/*/ray-cluster-demo/.venv/bin/activate\n\n# Set the Ray address\nexport RAY_ADDRESS="${headIp}:6379"\n\n# Run your script\npython my_script.py`;
+    directCmd.textContent = `# SSH to the head node\npw ssh workspace\n\n# Activate the Ray environment\nsource ~/pw/software/ray-*/bin/activate\n\n# Set the Ray address\nexport RAY_ADDRESS="${headIp}:6379"\n\n# Run your script\npython my_script.py`;
   }
 }
 

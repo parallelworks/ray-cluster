@@ -64,7 +64,7 @@ echo "=== Date: $(date) ==="
 # Find the latest job directory
 JOB_DIR=""
 for d in ~/pw/jobs/ray_cluster_demo/*/; do
-    if [ -f "$d/.venv/bin/python" ] && [ -f "$d/scripts/diagnose_cluster.py" ]; then
+    if [ -f "$d/scripts/diagnose_cluster.py" ]; then
         JOB_DIR="$d"
     fi
 done
@@ -80,8 +80,9 @@ echo "Using job dir: ${JOB_DIR}"
 cd "$JOB_DIR"
 
 # Activate venv
-if [ -f .venv/bin/activate ]; then
-    source .venv/bin/activate
+VENV_DIR="$(cat "${JOB_DIR}/RAY_VENV_DIR" 2>/dev/null || echo "${JOB_DIR}/.venv")"
+if [ -f "${VENV_DIR}/bin/activate" ]; then
+    source "${VENV_DIR}/bin/activate"
 fi
 
 # Check Ray is running

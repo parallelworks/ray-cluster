@@ -15,11 +15,14 @@ echo "=========================================="
 
 JOB_DIR="${PW_PARENT_JOB_DIR%/}"
 RAY_VERSION="${RAY_VERSION:-2.40.0}"
-VENV_DIR="${JOB_DIR}/.venv"
-UV_DIR="${JOB_DIR}/.uv"
+SOFTWARE_DIR="${HOME}/pw/software"
+VENV_DIR="${SOFTWARE_DIR}/ray-${RAY_VERSION}"
+UV_DIR="${SOFTWARE_DIR}/.uv"
 UV_BIN="${UV_DIR}/uv"
 MIN_PYTHON="3.9"
 TARGET_PYTHON="3.12"
+
+mkdir -p "${SOFTWARE_DIR}"
 
 # =============================================================================
 # Find system Python
@@ -46,7 +49,8 @@ if [ -f "${VENV_DIR}/bin/python" ]; then
         PYTHON_OK=false
     fi
     if [ "${PYTHON_OK}" = "true" ] && [ "${INSTALLED_VERSION}" == "${RAY_VERSION}" ]; then
-        echo "Ray ${RAY_VERSION} already installed, skipping."
+        echo "Ray ${RAY_VERSION} already installed in ${VENV_DIR}, skipping."
+        echo "${VENV_DIR}" > "${JOB_DIR}/RAY_VENV_DIR"
         touch "${JOB_DIR}/SETUP_COMPLETE"
         exit 0
     fi
@@ -174,7 +178,9 @@ fi
 "${VENV_DIR}/bin/python" -c "import ray; print('Ray ' + ray.__version__ + ' ready')"
 "${VENV_DIR}/bin/python" -c "import numpy; print('NumPy ' + numpy.__version__ + ' ready')"
 
+# Write venv path for other scripts to discover
+echo "${VENV_DIR}" > "${JOB_DIR}/RAY_VENV_DIR"
 touch "${JOB_DIR}/SETUP_COMPLETE"
 echo "=========================================="
-echo "Setup complete! Ray ${RAY_VERSION} installed."
+echo "Setup complete! Ray ${RAY_VERSION} in ${VENV_DIR}"
 echo "=========================================="

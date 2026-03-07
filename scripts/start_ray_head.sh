@@ -40,8 +40,8 @@ fi
 # =============================================================================
 bash "${SCRIPT_DIR}/setup.sh"
 
-# Determine Python from venv
-VENV_DIR="${JOB_DIR}/.venv"
+# Determine Python from venv (setup.sh writes the path to RAY_VENV_DIR)
+VENV_DIR="$(cat "${JOB_DIR}/RAY_VENV_DIR" 2>/dev/null || echo "${JOB_DIR}/.venv")"
 if [ -f "${VENV_DIR}/bin/python" ]; then
     PYTHON_CMD="${VENV_DIR}/bin/python"
     source "${VENV_DIR}/bin/activate"

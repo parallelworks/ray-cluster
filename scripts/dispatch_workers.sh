@@ -197,8 +197,9 @@ export MKL_NUM_THREADS=1
 export OPENBLAS_NUM_THREADS=1
 
 # Activate venv from shared filesystem
-if [ -f "${WORKER_JOB_DIR}/.venv/bin/activate" ]; then
-    source "${WORKER_JOB_DIR}/.venv/bin/activate"
+RAY_VENV="$(cat "${WORKER_JOB_DIR}/RAY_VENV_DIR" 2>/dev/null || echo "${WORKER_JOB_DIR}/.venv")"
+if [ -f "${RAY_VENV}/bin/activate" ]; then
+    source "${RAY_VENV}/bin/activate"
 fi
 
 ray stop --force 2>/dev/null || true
@@ -329,8 +330,9 @@ export MKL_NUM_THREADS=1
 export OPENBLAS_NUM_THREADS=1
 
 # Activate venv from shared filesystem
-if [ -f "\${JOB_DIR}/.venv/bin/activate" ]; then
-    source "\${JOB_DIR}/.venv/bin/activate"
+RAY_VENV="\$(cat "\${JOB_DIR}/RAY_VENV_DIR" 2>/dev/null || echo "\${JOB_DIR}/.venv")"
+if [ -f "\${RAY_VENV}/bin/activate" ]; then
+    source "\${RAY_VENV}/bin/activate"
 fi
 
 ray stop --force 2>/dev/null || true
@@ -571,8 +573,8 @@ export RAY_VERSION='${RAY_VERSION}'
 export PYTHON_MICRO_VERSION='${PYTHON_VERSION}'
 bash scripts/setup.sh
 
-# Activate venv
-VENV_DIR="\${WORK}/.venv"
+# Activate venv (setup.sh writes path to RAY_VENV_DIR)
+VENV_DIR="\$(cat "\${WORK}/RAY_VENV_DIR" 2>/dev/null || echo "\${WORK}/.venv")"
 if [ -f "\${VENV_DIR}/bin/python" ]; then
     source "\${VENV_DIR}/bin/activate"
 fi
@@ -650,8 +652,9 @@ while [ ! -f "\${WORK_DIR}/nodeinfo/proxies_ready" ]; do
 done
 
 # Activate venv
-if [ -f "\${WORK_DIR}/.venv/bin/activate" ]; then
-    source "\${WORK_DIR}/.venv/bin/activate"
+RAY_VENV="\$(cat "\${WORK_DIR}/RAY_VENV_DIR" 2>/dev/null || echo "\${WORK_DIR}/.venv")"
+if [ -f "\${RAY_VENV}/bin/activate" ]; then
+    source "\${RAY_VENV}/bin/activate"
 fi
 
 # Wait for Ray GCS (up to 5 minutes — head may still be installing)
@@ -923,8 +926,8 @@ export RAY_VERSION='${RAY_VERSION}'
 export PYTHON_MICRO_VERSION='${PYTHON_VERSION}'
 bash scripts/setup.sh
 
-# Activate venv
-VENV_DIR="\${WORK}/.venv"
+# Activate venv (setup.sh writes path to RAY_VENV_DIR)
+VENV_DIR="\$(cat "\${WORK}/RAY_VENV_DIR" 2>/dev/null || echo "\${WORK}/.venv")"
 if [ -f "\${VENV_DIR}/bin/python" ]; then
     source "\${VENV_DIR}/bin/activate"
 fi
@@ -1046,8 +1049,9 @@ while [ ! -f "\${WORK_DIR}/nodeinfo/proxies_ready" ]; do
 done
 
 # Activate venv
-if [ -f "\${WORK_DIR}/.venv/bin/activate" ]; then
-    source "\${WORK_DIR}/.venv/bin/activate"
+RAY_VENV="\$(cat "\${WORK_DIR}/RAY_VENV_DIR" 2>/dev/null || echo "\${WORK_DIR}/.venv")"
+if [ -f "\${RAY_VENV}/bin/activate" ]; then
+    source "\${RAY_VENV}/bin/activate"
 fi
 
 # Wait for Ray GCS (up to 5 minutes — head may still be installing)
@@ -1278,8 +1282,8 @@ export RAY_VERSION='${RAY_VERSION}'
 export PYTHON_MICRO_VERSION='${PYTHON_VERSION}'
 bash scripts/setup.sh
 
-# Activate venv
-VENV_DIR="\${WORK}/.venv"
+# Activate venv (setup.sh writes path to RAY_VENV_DIR)
+VENV_DIR="\$(cat "\${WORK}/RAY_VENV_DIR" 2>/dev/null || echo "\${WORK}/.venv")"
 if [ -f "\${VENV_DIR}/bin/python" ]; then
     source "\${VENV_DIR}/bin/activate"
 fi

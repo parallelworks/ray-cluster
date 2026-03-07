@@ -34,7 +34,7 @@ JOB_DIR="${PW_PARENT_JOB_DIR%/}"
 SCRIPT_DIR="${JOB_DIR}/scripts"
 
 # Activate venv if available
-VENV_DIR="${JOB_DIR}/.venv"
+VENV_DIR="$(cat "${JOB_DIR}/RAY_VENV_DIR" 2>/dev/null || echo "${JOB_DIR}/.venv")"
 if [ -f "${VENV_DIR}/bin/python" ]; then
     source "${VENV_DIR}/bin/activate"
     PYTHON_CMD="${VENV_DIR}/bin/python"

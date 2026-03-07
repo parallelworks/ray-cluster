@@ -197,7 +197,7 @@ jobs:
 
           # Wait for at least 1 worker to connect before announcing ready
           echo "Waiting for at least 1 worker CPU..."
-          VENV_DIR="${PW_PARENT_JOB_DIR%/}/.venv"
+          VENV_DIR="$(cat "${PW_PARENT_JOB_DIR%/}/RAY_VENV_DIR" 2>/dev/null || echo "${PW_PARENT_JOB_DIR%/}/.venv")"
           [ -f "${VENV_DIR}/bin/activate" ] && source "${VENV_DIR}/bin/activate"
           MAX_WAIT=600
           WAITED=0
@@ -255,7 +255,7 @@ jobs:
             chmod +x "${SCRIPT_FILE}"
 
             # Activate the venv and set Ray address
-            VENV_DIR="${JOB_DIR%/}/.venv"
+            VENV_DIR="$(cat "${JOB_DIR%/}/RAY_VENV_DIR" 2>/dev/null || echo "${JOB_DIR%/}/.venv")"
             [ -f "${VENV_DIR}/bin/activate" ] && source "${VENV_DIR}/bin/activate"
             export RAY_ADDRESS="${RAY_HEAD_IP}:6379"
 
