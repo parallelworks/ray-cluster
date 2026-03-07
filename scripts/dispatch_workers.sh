@@ -1629,11 +1629,28 @@ for i in "${!PIDS[@]}"; do
     fi
 done
 
-# Keep alive while any tracked SLURM jobs are still running.
-# This prevents the step from exiting (and triggering cleanup)
-# while workers are active.
+if [ "${FAILED}" -gt 0 ]; then
+    echo ""
+    echo "=========================================="
+    echo "Worker dispatch FAILED"
+    echo "  Worker sites: ${NUM_WORKERS}"
+    echo "  Failed: ${FAILED}"
+    echo "=========================================="
+    exit 1
+fi
+
+echo ""
+echo "=========================================="
+echo "All workers dispatched successfully."
+echo "  Worker sites: ${NUM_WORKERS}"
+echo "=========================================="
+
+# Keep this step alive so cleanup only fires on workflow cancel.
+# Local SLURM: poll squeue for tracked job IDs.
+# Remote/other: workers already ran via SSH; keep alive indefinitely
+# until the workflow is cancelled.
 if [ -f "${JOB_DIR}/slurm_jobids" ]; then
-    echo "Monitoring SLURM jobs..."
+    echo "Monitoring local SLURM jobs..."
     while true; do
         ALL_DONE=true
         while IFS= read -r jid; do
@@ -1645,20 +1662,16 @@ if [ -f "${JOB_DIR}/slurm_jobids" ]; then
             fi
         done < "${JOB_DIR}/slurm_jobids"
         if [ "${ALL_DONE}" = "true" ]; then
-            echo "All SLURM jobs completed."
+            echo "All local SLURM jobs completed."
             break
         fi
         sleep 15
     done
 fi
 
-echo ""
-echo "=========================================="
-echo "Worker dispatch complete!"
-echo "  Worker sites: ${NUM_WORKERS}"
-echo "  Failed: ${FAILED}"
-echo "=========================================="
-
-if [ "${FAILED}" -gt 0 ]; then
-    exit 1
-fi
+# Stay alive until the workflow is cancelled.
+# This prevents cleanup from firing prematurely.
+echo "Dispatch workers standing by (cancel workflow to terminate)..."
+while true; do
+    sleep 30
+done
