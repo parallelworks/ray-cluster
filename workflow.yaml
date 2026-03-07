@@ -37,10 +37,26 @@ jobs:
       remoteHost: ${{ inputs.head.resource.ip }}
     steps:
       - name: Setup and start Ray head + dashboard
+        early-cancel: any-job-failed
         run: |
           set -e
           export RAY_VERSION="${{ inputs.ray_settings.ray_version }}"
           bash scripts/start_ray_head.sh
+        cleanup: |
+          echo "Cleaning up Ray head node..."
+          JOB_DIR="${PW_PARENT_JOB_DIR%/}"
+          # Stop Ray
+          VENV_DIR="$(cat "${JOB_DIR}/RAY_VENV_DIR" 2>/dev/null || echo "")"
+          if [ -n "${VENV_DIR}" ] && [ -x "${VENV_DIR}/bin/ray" ]; then
+            "${VENV_DIR}/bin/ray" stop --force 2>/dev/null || true
+          elif command -v ray &>/dev/null; then
+            ray stop --force 2>/dev/null || true
+          fi
+          # Kill dashboard
+          if [ -f "${JOB_DIR}/dashboard.pid" ]; then
+            kill "$(cat "${JOB_DIR}/dashboard.pid")" 2>/dev/null || true
+          fi
+          echo "Ray head cleanup done."
 
   # =============================================================================
   # WAIT FOR RAY — Poll for coordination files (Ray head + dashboard)
@@ -137,6 +153,7 @@ jobs:
       remoteHost: ${{ inputs.head.resource.ip }}
     steps:
       - name: Dispatch workers to compute sites
+        early-cancel: any-job-failed
         run: |
           set -e
           export RAY_VERSION="${{ inputs.ray_settings.ray_version }}"
@@ -147,6 +164,49 @@ jobs:
           export HEAD_RESOURCE_NAME='${{ inputs.head.resource.name }}'
 
           bash scripts/dispatch_workers.sh
+        cleanup: |
+          echo "Cleaning up worker sites..."
+          WORKERS_JSON='${{ inputs.workers }}'
+
+          # Parse worker resource IPs and cancel SLURM/PBS jobs on each
+          python3 -c "
+          import json, os, subprocess
+
+          workers = json.loads(os.environ.get('WORKERS_JSON', '[]'))
+          seen = set()
+          for w in workers:
+              ip = w.get('resource', {}).get('ip', '')
+              if not ip or ip in seen:
+                  continue
+              seen.add(ip)
+              name = w.get('resource', {}).get('name', ip)
+              sched = w.get('resource', {}).get('schedulerType', '')
+
+              print(f'Cleaning up {name} ({ip}, scheduler={sched})...')
+
+              # Cancel SLURM jobs
+              if sched == 'slurm':
+                  subprocess.run(
+                      ['ssh', '-o', 'StrictHostKeyChecking=no', ip,
+                       'scancel -u \$(whoami) 2>/dev/null; echo SLURM jobs cancelled'],
+                      timeout=30, capture_output=False
+                  )
+              # Cancel PBS jobs
+              elif sched == 'pbs':
+                  subprocess.run(
+                      ['ssh', '-o', 'StrictHostKeyChecking=no', ip,
+                       'for jid in \$(qstat -u \$(whoami) 2>/dev/null | awk \"NR>5 {print \\\$1}\"); do qdel \$jid 2>/dev/null; done; echo PBS jobs cancelled'],
+                      timeout=30, capture_output=False
+                  )
+
+              # Stop Ray on the worker resource
+              subprocess.run(
+                  ['ssh', '-o', 'StrictHostKeyChecking=no', ip,
+                   'ray stop --force 2>/dev/null || true'],
+                  timeout=30, capture_output=False
+              )
+          " 2>&1 || echo "Worker cleanup had errors (non-fatal)"
+          echo "Worker cleanup done."
 
   # =============================================================================
   # BENCHMARK — Run distributed benchmark across all sites (skipped in cluster_only mode)
@@ -183,6 +243,7 @@ jobs:
       remoteHost: ${{ inputs.head.resource.ip }}
     steps:
       - name: Set cluster ready
+        early-cancel: any-job-failed
         run: |
           set -e
           DASHBOARD_URL="http://localhost:$(cat ${PW_PARENT_JOB_DIR}/SESSION_PORT)"
@@ -284,6 +345,10 @@ jobs:
             echo "Cluster is ready. It will remain active until the workflow is cancelled."
             while true; do sleep 30; done
           fi
+        cleanup: |
+          echo "Cleaning up cluster_ready step..."
+          # Ray and dashboard cleanup is handled by start_ray_head cleanup
+          echo "cluster_ready cleanup done."
 
   # =============================================================================
   # COMPLETE — Print summary
