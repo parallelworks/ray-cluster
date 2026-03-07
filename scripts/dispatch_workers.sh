@@ -292,7 +292,7 @@ wait
 PBS_SCRIPT
 
         echo "[${site_name}] Submitting PBS job: qsub ${script_file}"
-        qsub "${script_file}" 2>&1 | sed "s/^/[${site_name}] /" &
+        qsub "${script_file}" 2>&1 | sed -u "s/^/[${site_name}] /" &
 
     else
         # SLURM dispatch (original behavior)
@@ -393,7 +393,7 @@ while true; do
 done
 WORKER_SCRIPT
 
-        ${srun_cmd} bash "${script_file}" 2>&1 | sed "s/^/[${site_name}] /" &
+        ${srun_cmd} bash "${script_file}" 2>&1 | sed -u "s/^/[${site_name}] /" &
     fi
 }
 
@@ -1442,7 +1442,7 @@ WORKER_SCRIPT
     # Pipe script via stdin to avoid quoting issues with SSH command strings
     echo "[${site_name}] Connecting via SSH (PW proxy)..."
     ssh "${SSH_ARGS[@]}" "${PW_USER}@${site_name}" 'bash -s' < "${script_file}" 2>&1 | \
-        sed "s/^/[${site_name}] /"
+        sed -u "s/^/[${site_name}] /"
     local ssh_exit=$?
     echo "[${site_name}] SSH session ended (exit code: ${ssh_exit})"
 }
