@@ -182,7 +182,7 @@ jobs:
   # CLUSTER READY — Notify dashboard in cluster_only mode
   # =============================================================================
   cluster_ready:
-    needs: [wait_for_ray, dispatch_workers]
+    needs: [wait_for_ray]
     if: ${{ inputs.workload_settings.workload_type == 'cluster_only' }}
     ssh:
       remoteHost: ${{ inputs.head.resource.ip }}
@@ -192,6 +192,27 @@ jobs:
           set -e
           DASHBOARD_URL="http://localhost:$(cat ${PW_PARENT_JOB_DIR}/SESSION_PORT)"
           RAY_HEAD_IP=$(cat "${PW_PARENT_JOB_DIR}/RAY_HEAD_IP")
+
+          # Wait for at least 1 worker to connect before announcing ready
+          echo "Waiting for at least 1 worker CPU..."
+          VENV_DIR="${PW_PARENT_JOB_DIR%/}/.venv"
+          [ -f "${VENV_DIR}/bin/activate" ] && source "${VENV_DIR}/bin/activate"
+          MAX_WAIT=600
+          WAITED=0
+          while true; do
+            CPUS=$(python3 -c "import ray; ray.init(address='${RAY_HEAD_IP}:6379', ignore_reinit_error=True); print(int(ray.cluster_resources().get('CPU', 0)))" 2>/dev/null || echo "0")
+            if [ "${CPUS}" -gt 0 ] 2>/dev/null; then
+              echo "Cluster has ${CPUS} CPUs available"
+              break
+            fi
+            if [ ${WAITED} -ge ${MAX_WAIT} ]; then
+              echo "WARNING: No workers after ${MAX_WAIT}s — proceeding anyway"
+              break
+            fi
+            sleep 5
+            WAITED=$((WAITED + 5))
+            [ $((WAITED % 30)) -eq 0 ] && echo "  Still waiting for workers... (${WAITED}s elapsed)"
+          done
 
           # Tell the dashboard we're in cluster_only mode
           curl -s -X POST "${DASHBOARD_URL}/api/config" \
