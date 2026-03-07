@@ -215,8 +215,8 @@ if [ -n "${CUDA_VISIBLE_DEVICES:-}" ]; then
     NUM_GPUS=$(echo "${CUDA_VISIBLE_DEVICES}" | tr ',' '\n' | grep -c .)
     echo "Detected ${NUM_GPUS} GPU(s) (from CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES})"
 elif [ -z "${SLURM_JOB_ID:-}" ] && command -v nvidia-smi &>/dev/null; then
-    # Not in a SLURM job — fall back to nvidia-smi
-    NUM_GPUS=$(nvidia-smi -L 2>/dev/null | wc -l)
+    # Not in a SLURM job — fall back to nvidia-smi (check exit code to avoid counting error text)
+    GPU_LIST=$(nvidia-smi -L 2>/dev/null) && NUM_GPUS=$(echo "${GPU_LIST}" | grep -c "^GPU ")
     [ "${NUM_GPUS}" -gt 0 ] && echo "Detected ${NUM_GPUS} GPU(s)"
 fi
 
@@ -352,7 +352,7 @@ if [ -n "\${CUDA_VISIBLE_DEVICES:-}" ]; then
     NUM_GPUS=\$(echo "\${CUDA_VISIBLE_DEVICES}" | tr ',' '\n' | grep -c .)
     echo "Detected \${NUM_GPUS} GPU(s) (from CUDA_VISIBLE_DEVICES=\${CUDA_VISIBLE_DEVICES})"
 elif [ -z "\${SLURM_JOB_ID:-}" ] && command -v nvidia-smi &>/dev/null; then
-    NUM_GPUS=\$(nvidia-smi -L 2>/dev/null | wc -l)
+    GPU_LIST=\$(nvidia-smi -L 2>/dev/null) && NUM_GPUS=\$(echo "\${GPU_LIST}" | grep -c "^GPU ")
     [ "\${NUM_GPUS}" -gt 0 ] && echo "Detected \${NUM_GPUS} GPU(s)"
 fi
 
@@ -706,7 +706,7 @@ if [ -n "\${CUDA_VISIBLE_DEVICES:-}" ]; then
     NUM_GPUS=\$(echo "\${CUDA_VISIBLE_DEVICES}" | tr ',' '\n' | grep -c .)
     echo "Detected \${NUM_GPUS} GPU(s) (from CUDA_VISIBLE_DEVICES=\${CUDA_VISIBLE_DEVICES})"
 elif [ -z "\${SLURM_JOB_ID:-}" ] && command -v nvidia-smi &>/dev/null; then
-    NUM_GPUS=\$(nvidia-smi -L 2>/dev/null | wc -l)
+    GPU_LIST=\$(nvidia-smi -L 2>/dev/null) && NUM_GPUS=\$(echo "\${GPU_LIST}" | grep -c "^GPU ")
     [ "\${NUM_GPUS}" -gt 0 ] && echo "Detected \${NUM_GPUS} GPU(s)"
 fi
 
@@ -1379,7 +1379,7 @@ if [ -n "\${CUDA_VISIBLE_DEVICES:-}" ]; then
     NUM_GPUS=\$(echo "\${CUDA_VISIBLE_DEVICES}" | tr ',' '\n' | grep -c .)
     echo "Detected \${NUM_GPUS} GPU(s) (from CUDA_VISIBLE_DEVICES=\${CUDA_VISIBLE_DEVICES})"
 elif [ -z "\${SLURM_JOB_ID:-}" ] && command -v nvidia-smi &>/dev/null; then
-    NUM_GPUS=\$(nvidia-smi -L 2>/dev/null | wc -l)
+    GPU_LIST=\$(nvidia-smi -L 2>/dev/null) && NUM_GPUS=\$(echo "\${GPU_LIST}" | grep -c "^GPU ")
     [ "\${NUM_GPUS}" -gt 0 ] && echo "Detected \${NUM_GPUS} GPU(s)"
 fi
 
