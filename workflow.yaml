@@ -176,11 +176,9 @@ jobs:
             done < "${JOB_DIR}/slurm_jobids"
           fi
 
-          # Stop Ray on local workers
-          VENV_DIR="$(cat "${JOB_DIR}/RAY_VENV_DIR" 2>/dev/null || echo "")"
-          if [ -n "${VENV_DIR}" ] && [ -x "${VENV_DIR}/bin/ray" ]; then
-            "${VENV_DIR}/bin/ray" stop --force 2>/dev/null || true
-          fi
+          # NOTE: Do NOT run "ray stop" here — this runs on the head node
+          # and would kill the Ray coordinator. Ray head cleanup is handled
+          # by the start_ray_head cleanup block.
 
           # Remote workers: SSH session cleanup triggers their trap handler
           # which cancels their specific SLURM job via ${WORK}/slurm_jobid.
