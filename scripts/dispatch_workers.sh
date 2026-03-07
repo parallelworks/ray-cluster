@@ -208,11 +208,16 @@ sleep 1
 
 WORKER_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
 
-# Detect GPUs
+# Detect GPUs — respect SLURM/scheduler allocation
 NUM_GPUS=0
-if command -v nvidia-smi &>/dev/null; then
-    NUM_GPUS=$(nvidia-smi -L 2>/dev/null | wc -l)
-    echo "Detected ${NUM_GPUS} GPU(s)"
+if [ -n "${CUDA_VISIBLE_DEVICES:-}" ]; then
+    # CUDA_VISIBLE_DEVICES is set — count the devices listed
+    NUM_GPUS=$(echo "${CUDA_VISIBLE_DEVICES}" | tr ',' '\n' | grep -c .)
+    echo "Detected ${NUM_GPUS} GPU(s) (from CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES})"
+elif [ -z "${SLURM_JOB_ID:-}" ] && command -v nvidia-smi &>/dev/null; then
+    # Not in a SLURM job — fall back to nvidia-smi (check exit code to avoid counting error text)
+    GPU_LIST=$(nvidia-smi -L 2>/dev/null) && NUM_GPUS=$(echo "${GPU_LIST}" | grep -c "^GPU ")
+    [ "${NUM_GPUS}" -gt 0 ] && echo "Detected ${NUM_GPUS} GPU(s)"
 fi
 
 echo "Starting Ray worker on $(hostname) (${WORKER_IP}), connecting to ${WORKER_HEAD_IP}:6379..."
@@ -341,11 +346,14 @@ sleep 1
 
 WORKER_IP=\$(hostname -I 2>/dev/null | awk '{print \$1}')
 
-# Detect GPUs
+# Detect GPUs — respect SLURM/scheduler allocation
 NUM_GPUS=0
-if command -v nvidia-smi &>/dev/null; then
-    NUM_GPUS=\$(nvidia-smi -L 2>/dev/null | wc -l)
-    echo "Detected \${NUM_GPUS} GPU(s)"
+if [ -n "\${CUDA_VISIBLE_DEVICES:-}" ]; then
+    NUM_GPUS=\$(echo "\${CUDA_VISIBLE_DEVICES}" | tr ',' '\n' | grep -c .)
+    echo "Detected \${NUM_GPUS} GPU(s) (from CUDA_VISIBLE_DEVICES=\${CUDA_VISIBLE_DEVICES})"
+elif [ -z "\${SLURM_JOB_ID:-}" ] && command -v nvidia-smi &>/dev/null; then
+    GPU_LIST=\$(nvidia-smi -L 2>/dev/null) && NUM_GPUS=\$(echo "\${GPU_LIST}" | grep -c "^GPU ")
+    [ "\${NUM_GPUS}" -gt 0 ] && echo "Detected \${NUM_GPUS} GPU(s)"
 fi
 
 echo "Starting Ray worker on \$(hostname) (\${WORKER_IP}), connecting to \${HEAD_IP}:6379..."
@@ -692,11 +700,14 @@ ray stop --force 2>/dev/null || true
 rm -rf /tmp/ray/session_* 2>/dev/null || true
 sleep 1
 
-# Detect GPUs
+# Detect GPUs — respect SLURM/scheduler allocation
 NUM_GPUS=0
-if command -v nvidia-smi &>/dev/null; then
-    NUM_GPUS=\$(nvidia-smi -L 2>/dev/null | wc -l)
-    echo "Detected \${NUM_GPUS} GPU(s)"
+if [ -n "\${CUDA_VISIBLE_DEVICES:-}" ]; then
+    NUM_GPUS=\$(echo "\${CUDA_VISIBLE_DEVICES}" | tr ',' '\n' | grep -c .)
+    echo "Detected \${NUM_GPUS} GPU(s) (from CUDA_VISIBLE_DEVICES=\${CUDA_VISIBLE_DEVICES})"
+elif [ -z "\${SLURM_JOB_ID:-}" ] && command -v nvidia-smi &>/dev/null; then
+    GPU_LIST=\$(nvidia-smi -L 2>/dev/null) && NUM_GPUS=\$(echo "\${GPU_LIST}" | grep -c "^GPU ")
+    [ "\${NUM_GPUS}" -gt 0 ] && echo "Detected \${NUM_GPUS} GPU(s)"
 fi
 
 echo "Starting Ray worker: address=\${LOGIN_HOST}:\${PROXY_RAY_PORT} ip=\${MY_TUNNEL_IP}"
@@ -1362,11 +1373,14 @@ echo "  Node IP advertised: ${ip} (via SSH forward tunnel)"
 echo "  Raylet port: ${raylet}"
 echo "  Object manager port: ${obj}"
 echo "  Worker process ports: ${min_port}-${max_port}"
-# Detect GPUs
+# Detect GPUs — respect SLURM/scheduler allocation
 NUM_GPUS=0
-if command -v nvidia-smi &>/dev/null; then
-    NUM_GPUS=\$(nvidia-smi -L 2>/dev/null | wc -l)
-    echo "Detected \${NUM_GPUS} GPU(s)"
+if [ -n "\${CUDA_VISIBLE_DEVICES:-}" ]; then
+    NUM_GPUS=\$(echo "\${CUDA_VISIBLE_DEVICES}" | tr ',' '\n' | grep -c .)
+    echo "Detected \${NUM_GPUS} GPU(s) (from CUDA_VISIBLE_DEVICES=\${CUDA_VISIBLE_DEVICES})"
+elif [ -z "\${SLURM_JOB_ID:-}" ] && command -v nvidia-smi &>/dev/null; then
+    GPU_LIST=\$(nvidia-smi -L 2>/dev/null) && NUM_GPUS=\$(echo "\${GPU_LIST}" | grep -c "^GPU ")
+    [ "\${NUM_GPUS}" -gt 0 ] && echo "Detected \${NUM_GPUS} GPU(s)"
 fi
 
 RAY_START_ARGS="--address=127.0.0.1:\${PROXY_RAY_PORT}"

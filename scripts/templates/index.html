@@ -445,6 +445,43 @@ ray job submit --address http://127.0.0.1:8265 --working-dir . -- python my_scri
 # Check status and logs
 ray job list --address http://127.0.0.1:8265
 ray job logs --address http://127.0.0.1:8265 &lt;job-id&gt;</pre>
+
+        <details style="margin-top: 0.75rem;" open>
+          <summary style="cursor: pointer; color: var(--dim); font-size: 0.85rem; font-weight: 500; user-select: none; margin-bottom: 0.5rem;">
+            Example: my_script.py
+          </summary>
+          <pre style="background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 0.75rem 1rem; font-size: 0.82rem; color: var(--text); overflow-x: auto; white-space: pre-wrap; margin: 0;">import ray
+import socket
+import time
+
+ray.init()
+
+@ray.remote
+def compute(i):
+    """A sample task that runs on a worker node."""
+    time.sleep(1)
+    host = socket.gethostname()
+    return f"Task {i} completed on {host}"
+
+# Submit 10 tasks across the cluster
+futures = [compute.remote(i) for i in range(10)]
+results = ray.get(futures)
+
+for r in results:
+    print(r)</pre>
+        </details>
+
+        <details style="margin-top: 0.5rem;">
+          <summary style="cursor: pointer; color: var(--dim); font-size: 0.85rem; font-weight: 500; user-select: none; margin-bottom: 0.5rem;">
+            Example: Quick bash one-liner
+          </summary>
+          <pre id="ray-jobs-bash-cmd" style="background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 0.75rem 1rem; font-size: 0.82rem; color: var(--text); overflow-x: auto; white-space: pre-wrap; margin: 0;"># Run a quick command without a script file
+ray job submit --address http://127.0.0.1:8265 -- python -c "
+import ray; ray.init()
+print(ray.cluster_resources())
+print('Nodes:', len(ray.nodes()))
+"</pre>
+        </details>
       </div>
 
       <!-- Alternative methods (collapsible) -->
