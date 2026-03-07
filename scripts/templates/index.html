@@ -408,33 +408,58 @@
   </div>
 
   <!-- Cluster-only instructions view -->
+  <!-- Cluster-only instructions view -->
   <div id="cluster-only-view" class="cluster-view view-hidden" style="padding: 2rem; overflow-y: auto;">
-    <div style="max-width: 900px; margin: 0 auto; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 1.5rem 2rem;">
-      <div class="card-title" style="font-size: 1.1rem; margin-bottom: 0.5rem;">Ray Cluster Ready</div>
-      <p style="color: var(--dim); margin-bottom: 1.5rem;">
-        The multi-site Ray cluster is running. Connect from your local machine or run scripts directly on the head node.
-      </p>
+    <div style="max-width: 900px; margin: 0 auto;">
 
-      <div style="margin-bottom: 1.5rem;">
-        <div class="card-title" style="font-size: 0.95rem;">1. Connect via SSH Tunnel</div>
-        <p style="color: var(--dim); font-size: 0.85rem; margin: 0.5rem 0;">
-          Forward the Ray ports to your local machine using the <code style="color: var(--accent);">pw</code> CLI:
-        </p>
-        <pre id="ssh-tunnel-cmd" style="background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 1rem; font-size: 0.82rem; color: var(--accent); overflow-x: auto; white-space: pre-wrap; word-break: break-all; margin: 0.5rem 0;">pw ssh -L 6379:localhost:6379 -L 10001:localhost:10001 workspace</pre>
+      <!-- Cluster status bar -->
+      <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.5rem;">
+        <div style="flex: 1;">
+          <div class="card-title" style="font-size: 1.1rem; margin-bottom: 0.25rem;">Ray Cluster Ready</div>
+          <span style="color: var(--dim); font-size: 0.85rem;">
+            <span id="info-worker-count">0</span> workers &middot; <span id="info-gpu-count">0</span> GPUs &middot;
+            Head: <code id="info-ray-head-ip" style="color: var(--accent);">-</code>
+          </span>
+        </div>
       </div>
 
-      <div style="margin-bottom: 1.5rem;">
-        <div class="card-title" style="font-size: 0.95rem;">2. Submit a Ray Job (Python)</div>
-        <p style="color: var(--dim); font-size: 0.85rem; margin: 0.5rem 0;">
-          With the tunnel open, connect from a local Python script:
+      <!-- Recommended: Ray Jobs API -->
+      <div style="background: var(--panel); border: 1px solid var(--accent); border-radius: 8px; padding: 1.5rem 2rem; margin-bottom: 1rem;">
+        <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem;">
+          <div class="card-title" style="font-size: 1rem; margin: 0;">Submit via Ray Jobs API</div>
+          <span style="font-size: 0.7rem; background: var(--accent); color: var(--bg); padding: 0.15rem 0.5rem; border-radius: 3px; font-weight: 600;">RECOMMENDED</span>
+        </div>
+        <p style="color: var(--dim); font-size: 0.85rem; margin: 0 0 0.75rem 0;">
+          The Ray Jobs API is the standard way to submit work to a Ray cluster. It packages your script and dependencies, handles logging, and supports job management (status, stop, logs).
         </p>
-        <pre style="background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 1rem; font-size: 0.82rem; color: var(--text); overflow-x: auto; white-space: pre-wrap;">import ray
+        <p style="color: var(--dim); font-size: 0.85rem; margin: 0 0 0.5rem 0;">
+          Open an SSH tunnel to the Ray dashboard:
+        </p>
+        <pre id="ray-jobs-tunnel-cmd" style="background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 0.75rem 1rem; font-size: 0.82rem; color: var(--accent); overflow-x: auto; white-space: pre-wrap; word-break: break-all; margin: 0 0 0.75rem 0;">pw ssh -L 8265:localhost:8265 workspace</pre>
+        <p style="color: var(--dim); font-size: 0.85rem; margin: 0 0 0.5rem 0;">
+          Then submit jobs from your local machine:
+        </p>
+        <pre id="ray-jobs-cmd" style="background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 0.75rem 1rem; font-size: 0.82rem; color: var(--text); overflow-x: auto; white-space: pre-wrap; margin: 0;"># Submit a job
+ray job submit --address http://127.0.0.1:8265 --working-dir . -- python my_script.py
 
-# Connect via your SSH tunnel
-ray.init(address="ray://127.0.0.1:10001")
+# Check status and logs
+ray job list --address http://127.0.0.1:8265
+ray job logs --address http://127.0.0.1:8265 &lt;job-id&gt;</pre>
+      </div>
 
-# Or connect directly on the head node:
-# ray.init(address="<span id="python-head-ip">&lt;RAY_HEAD_IP&gt;</span>:6379")
+      <!-- Alternative methods (collapsible) -->
+      <details style="background: var(--panel); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 1rem;">
+        <summary style="padding: 1rem 1.5rem; cursor: pointer; color: var(--text); font-size: 0.95rem; font-weight: 500; user-select: none;">
+          Alternative: Connect via Python SDK
+        </summary>
+        <div style="padding: 0 1.5rem 1.25rem 1.5rem;">
+          <p style="color: var(--dim); font-size: 0.85rem; margin: 0 0 0.5rem 0;">
+            Forward the Ray GCS port and connect directly from Python:
+          </p>
+          <pre id="ssh-tunnel-cmd" style="background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 0.75rem 1rem; font-size: 0.82rem; color: var(--accent); overflow-x: auto; white-space: pre-wrap; word-break: break-all; margin: 0 0 0.75rem 0;">pw ssh -L 6379:localhost:6379 workspace</pre>
+          <pre style="background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 0.75rem 1rem; font-size: 0.82rem; color: var(--text); overflow-x: auto; white-space: pre-wrap; margin: 0;">import ray
+
+ray.init(address="ray://127.0.0.1:6379")
 
 @ray.remote
 def my_task(x):
@@ -443,34 +468,20 @@ def my_task(x):
     return f"Result {x} from {socket.gethostname()}"
 
 futures = [my_task.remote(i) for i in range(10)]
-results = ray.get(futures)
-for r in results:
-    print(r)
-
+print(ray.get(futures))
 ray.shutdown()</pre>
-      </div>
+        </div>
+      </details>
 
-      <div style="margin-bottom: 1.5rem;">
-        <div class="card-title" style="font-size: 0.95rem;">3. Submit via Ray Jobs CLI</div>
-        <p style="color: var(--dim); font-size: 0.85rem; margin: 0.5rem 0;">
-          Tunnel to the Ray dashboard, then use the Ray Jobs CLI:
-        </p>
-        <pre id="ray-jobs-cmd" style="background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 1rem; font-size: 0.82rem; color: var(--text); overflow-x: auto; white-space: pre-wrap;"># Tunnel to the Ray dashboard
-pw ssh -L 8265:localhost:8265 workspace
-
-# Submit a job
-ray job submit --address http://127.0.0.1:8265 -- python my_script.py
-
-# Check status
-ray job list --address http://127.0.0.1:8265</pre>
-      </div>
-
-      <div style="margin-bottom: 1.5rem;">
-        <div class="card-title" style="font-size: 0.95rem;">4. Run Directly on the Head Node</div>
-        <p style="color: var(--dim); font-size: 0.85rem; margin: 0.5rem 0;">
-          SSH into the workspace and run scripts with Ray pre-configured:
-        </p>
-        <pre id="direct-cmd" style="background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 1rem; font-size: 0.82rem; color: var(--text); overflow-x: auto; white-space: pre-wrap;"># SSH to the workspace
+      <details style="background: var(--panel); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 1rem;">
+        <summary style="padding: 1rem 1.5rem; cursor: pointer; color: var(--text); font-size: 0.95rem; font-weight: 500; user-select: none;">
+          Alternative: Run Directly on Head Node
+        </summary>
+        <div style="padding: 0 1.5rem 1.25rem 1.5rem;">
+          <p style="color: var(--dim); font-size: 0.85rem; margin: 0 0 0.5rem 0;">
+            SSH into the head node and run scripts with Ray pre-configured. No tunnel needed.
+          </p>
+          <pre id="direct-cmd" style="background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 0.75rem 1rem; font-size: 0.82rem; color: var(--text); overflow-x: auto; white-space: pre-wrap; margin: 0;"># SSH to the head node
 pw ssh workspace
 
 # Activate the Ray environment
@@ -481,39 +492,9 @@ export RAY_ADDRESS="&lt;RAY_HEAD_IP&gt;:6379"
 
 # Run your script
 python my_script.py</pre>
-      </div>
-
-      <div>
-        <div class="card-title" style="font-size: 0.95rem;">Cluster Info</div>
-        <div id="cluster-info-table" style="margin-top: 0.5rem; font-size: 0.85rem;">
-          <table style="width: 100%; border-collapse: collapse;">
-            <tr style="border-bottom: 1px solid var(--border);">
-              <td style="padding: 0.4rem 0; color: var(--dim);">Ray Head IP</td>
-              <td id="info-ray-head-ip" style="padding: 0.4rem 0; color: var(--accent); font-family: monospace;">-</td>
-            </tr>
-            <tr style="border-bottom: 1px solid var(--border);">
-              <td style="padding: 0.4rem 0; color: var(--dim);">GCS Port</td>
-              <td style="padding: 0.4rem 0; font-family: monospace;">6379</td>
-            </tr>
-            <tr style="border-bottom: 1px solid var(--border);">
-              <td style="padding: 0.4rem 0; color: var(--dim);">Ray Client Port</td>
-              <td style="padding: 0.4rem 0; font-family: monospace;">10001</td>
-            </tr>
-            <tr style="border-bottom: 1px solid var(--border);">
-              <td style="padding: 0.4rem 0; color: var(--dim);">Ray Dashboard</td>
-              <td style="padding: 0.4rem 0; font-family: monospace;">8265</td>
-            </tr>
-            <tr style="border-bottom: 1px solid var(--border);">
-              <td style="padding: 0.4rem 0; color: var(--dim);">Connected Workers</td>
-              <td id="info-worker-count" style="padding: 0.4rem 0; font-family: monospace;">0</td>
-            </tr>
-            <tr>
-              <td style="padding: 0.4rem 0; color: var(--dim);">Total GPUs</td>
-              <td id="info-gpu-count" style="padding: 0.4rem 0; font-family: monospace;">0</td>
-            </tr>
-          </table>
         </div>
-      </div>
+      </details>
+
     </div>
   </div>
 
@@ -728,19 +709,15 @@ function updateClusterOnlyInfo() {
   // Substitute real values into code blocks
   const sshCmd = document.getElementById('ssh-tunnel-cmd');
   if (sshCmd && headIp !== '-') {
-    sshCmd.textContent = `pw ssh -L 6379:localhost:6379 -L 10001:localhost:10001 workspace`;
-  }
-  const pythonIp = document.getElementById('python-head-ip');
-  if (pythonIp && headIp !== '-') {
-    pythonIp.textContent = headIp;
+    sshCmd.textContent = `pw ssh -L 6379:localhost:6379 workspace`;
   }
   const rayJobsCmd = document.getElementById('ray-jobs-cmd');
   if (rayJobsCmd && headIp !== '-') {
-    rayJobsCmd.textContent = `# Tunnel to the Ray dashboard\npw ssh -L 8265:localhost:8265 workspace\n\n# Submit a job\nray job submit --address http://127.0.0.1:8265 -- python my_script.py\n\n# Check status\nray job list --address http://127.0.0.1:8265`;
+    rayJobsCmd.textContent = `# Submit a job\nray job submit --address http://127.0.0.1:8265 --working-dir . -- python my_script.py\n\n# Check status and logs\nray job list --address http://127.0.0.1:8265\nray job logs --address http://127.0.0.1:8265 <job-id>`;
   }
   const directCmd = document.getElementById('direct-cmd');
   if (directCmd && headIp !== '-') {
-    directCmd.textContent = `# SSH to the workspace\npw ssh workspace\n\n# Activate the Ray environment\nsource ~/pw/jobs/*/ray-cluster-demo/.venv/bin/activate\n\n# Set the Ray address\nexport RAY_ADDRESS="${headIp}:6379"\n\n# Run your script\npython my_script.py`;
+    directCmd.textContent = `# SSH to the head node\npw ssh workspace\n\n# Activate the Ray environment\nsource ~/pw/jobs/*/ray-cluster-demo/.venv/bin/activate\n\n# Set the Ray address\nexport RAY_ADDRESS="${headIp}:6379"\n\n# Run your script\npython my_script.py`;
   }
 }
 
