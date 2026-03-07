@@ -42,6 +42,9 @@ if [ -z "${HEAD_RESOURCE_NAME}" ]; then
     fi
 fi
 
+# Fallback: if head resource not detected, assume workspace
+[ -z "${HEAD_RESOURCE_NAME}" ] && HEAD_RESOURCE_NAME="workspace"
+
 # Find Python and pw
 PYTHON_CMD=""
 for cmd in python3 python; do
@@ -464,7 +467,7 @@ dispatch_worker() {
         fi
     done
 
-    # Allocate 2 ports on the remote for reverse tunnels (dashboard + Ray GCS)
+    # Allocate 2 ports on the remote for pw ssh tunnels (dashboard + Ray GCS)
     local tunnel_dashboard_port
     tunnel_dashboard_port=$(${PW_CMD} ssh "${site_name}" \
         'python3 -c "import socket; s=socket.socket(); s.bind((\"\",0)); print(s.getsockname()[1]); s.close()"' 2>/dev/null)
@@ -498,9 +501,6 @@ dispatch_worker() {
         -o ServerAliveCountMax=4
         -o TCPKeepAlive=yes
         -o "ProxyCommand=${PW_CMD} ssh --proxy-command %h"
-        # Reverse tunnels: remote can reach head node
-        -R "${tunnel_dashboard_port}:localhost:${DASHBOARD_PORT}"
-        -R "${tunnel_ray_port}:localhost:${RAY_PORT}"
     )
 
     # Forward tunnels: head can reach each worker node via unique loopback IPs
@@ -577,7 +577,58 @@ done
 pkill -f "proxy.*\${WORK}" 2>/dev/null || true
 sleep 1
 
-# Start TCP proxies for reverse tunnels (Ray GCS + dashboard accessible to compute nodes)
+# Create tunnel back to head node using pw ssh
+# (replaces SSH -R reverse tunnels which are blocked on some HPC sites)
+PW_REMOTE=""
+for try_cmd in pw ~/pw/pw; do
+    command -v \${try_cmd} &>/dev/null && { PW_REMOTE=\${try_cmd}; break; }
+    [ -x "\${try_cmd}" ] && { PW_REMOTE=\${try_cmd}; break; }
+done
+
+if [ -z "\${PW_REMOTE}" ]; then
+    echo "[ERROR] pw CLI not found on remote host — cannot create tunnel to head node"
+    exit 1
+fi
+
+echo "Creating tunnel to head node (${HEAD_RESOURCE_NAME})..."
+\${PW_REMOTE} ssh -L ${tunnel_ray_port}:localhost:${RAY_PORT} \
+    -L ${tunnel_dashboard_port}:localhost:${DASHBOARD_PORT} \
+    ${HEAD_RESOURCE_NAME} "sleep 86400" </dev/null &
+PW_TUNNEL_PID=\$!
+echo \${PW_TUNNEL_PID} > "\${WORK}/.pw_tunnel.pid"
+sleep 3
+
+# Verify tunnel to head works
+echo "Verifying tunnel to head node..."
+TUNNEL_OK=false
+for t_attempt in \$(seq 1 30); do
+    if python3 -c "
+import socket, sys
+s = socket.socket()
+s.settimeout(3)
+try:
+    s.connect(('127.0.0.1', ${tunnel_ray_port}))
+    s.close()
+    sys.exit(0)
+except:
+    sys.exit(1)
+" 2>/dev/null; then
+        echo "Tunnel to head verified — Ray GCS reachable via 127.0.0.1:${tunnel_ray_port}"
+        TUNNEL_OK=true
+        break
+    fi
+    [ \$((t_attempt % 5)) -eq 0 ] && echo "  Waiting for tunnel... (\${t_attempt}/30)"
+    sleep 2
+done
+
+if [ "\${TUNNEL_OK}" != "true" ]; then
+    echo "[ERROR] Cannot reach head node through pw ssh tunnel"
+    echo "  Tried: \${PW_REMOTE} ssh -L ${tunnel_ray_port}:localhost:${RAY_PORT} ${HEAD_RESOURCE_NAME}"
+    kill \${PW_TUNNEL_PID} 2>/dev/null || true
+    exit 1
+fi
+
+# Start TCP proxies (compute nodes connect here, forwarded through pw ssh tunnel)
 PROXY_RAY_PORT=\$(python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()")
 PROXY_DASH_PORT=\$(python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()")
 
@@ -596,6 +647,7 @@ rm -f "\${WORK}/nodeinfo/"*
 ${node_configs}
 
 cleanup() {
+    kill \$(cat "\${WORK}/.pw_tunnel.pid" 2>/dev/null) 2>/dev/null || true
     kill \$(cat "\${WORK}/.proxy_ray_pid" 2>/dev/null) 2>/dev/null || true
     kill \$(cat "\${WORK}/.proxy_dash_pid" 2>/dev/null) 2>/dev/null || true
     for pf in "\${WORK}/.proxy_fwd_"*.pid; do
@@ -678,7 +730,7 @@ done
 
 if [ "\${RAY_REACHABLE}" != "true" ]; then
     echo "[ERROR] Cannot reach Ray head at \${LOGIN_HOST}:\${PROXY_RAY_PORT} after 300s"
-    echo "  Check that the SSH reverse tunnel is working."
+    echo "  Check that the pw ssh tunnel to the head node is working."
     exit 1
 fi
 
@@ -815,36 +867,6 @@ sleep 1
 touch "\${WORK}/nodeinfo/proxies_ready"
 echo "Forward proxies ready!"
 
-# Verify reverse tunnel connectivity before letting compute nodes proceed
-echo "Verifying reverse tunnel to Ray head..."
-TUNNEL_OK=false
-for t_attempt in \$(seq 1 30); do
-    if python3 -c "
-import socket, sys
-s = socket.socket()
-s.settimeout(3)
-try:
-    s.connect(('127.0.0.1', ${tunnel_ray_port}))
-    s.close()
-    sys.exit(0)
-except:
-    sys.exit(1)
-" 2>/dev/null; then
-        echo "Reverse tunnel verified — Ray head reachable via 127.0.0.1:${tunnel_ray_port}"
-        TUNNEL_OK=true
-        break
-    fi
-    [ \$((t_attempt % 5)) -eq 0 ] && echo "  Reverse tunnel not ready yet... (\${t_attempt}/30)"
-    sleep 2
-done
-
-if [ "\${TUNNEL_OK}" != "true" ]; then
-    echo "[ERROR] Reverse tunnel to Ray head is not working (127.0.0.1:${tunnel_ray_port})"
-    echo "  The SSH tunnel may not support reverse port forwarding on this site."
-    kill \${SRUN_PID} 2>/dev/null || true
-    exit 1
-fi
-
 wait \${SRUN_PID}
 WORKER_SCRIPT
 
@@ -909,7 +931,56 @@ done
 pkill -f "proxy.*\${WORK}" 2>/dev/null || true
 sleep 1
 
-# Start TCP proxies for reverse tunnels (Ray GCS + dashboard accessible to compute nodes)
+# Create tunnel back to head node using pw ssh
+PW_REMOTE=""
+for try_cmd in pw ~/pw/pw; do
+    command -v \${try_cmd} &>/dev/null && { PW_REMOTE=\${try_cmd}; break; }
+    [ -x "\${try_cmd}" ] && { PW_REMOTE=\${try_cmd}; break; }
+done
+
+if [ -z "\${PW_REMOTE}" ]; then
+    echo "[ERROR] pw CLI not found on remote host — cannot create tunnel to head node"
+    exit 1
+fi
+
+echo "Creating tunnel to head node (${HEAD_RESOURCE_NAME})..."
+\${PW_REMOTE} ssh -L ${tunnel_ray_port}:localhost:${RAY_PORT} \
+    -L ${tunnel_dashboard_port}:localhost:${DASHBOARD_PORT} \
+    ${HEAD_RESOURCE_NAME} "sleep 86400" </dev/null &
+PW_TUNNEL_PID=\$!
+echo \${PW_TUNNEL_PID} > "\${WORK}/.pw_tunnel.pid"
+sleep 3
+
+# Verify tunnel to head works
+echo "Verifying tunnel to head node..."
+TUNNEL_OK=false
+for t_attempt in \$(seq 1 30); do
+    if python3 -c "
+import socket, sys
+s = socket.socket()
+s.settimeout(3)
+try:
+    s.connect(('127.0.0.1', ${tunnel_ray_port}))
+    s.close()
+    sys.exit(0)
+except:
+    sys.exit(1)
+" 2>/dev/null; then
+        echo "Tunnel to head verified — Ray GCS reachable via 127.0.0.1:${tunnel_ray_port}"
+        TUNNEL_OK=true
+        break
+    fi
+    [ \$((t_attempt % 5)) -eq 0 ] && echo "  Waiting for tunnel... (\${t_attempt}/30)"
+    sleep 2
+done
+
+if [ "\${TUNNEL_OK}" != "true" ]; then
+    echo "[ERROR] Cannot reach head node through pw ssh tunnel"
+    kill \${PW_TUNNEL_PID} 2>/dev/null || true
+    exit 1
+fi
+
+# Start TCP proxies (compute nodes connect here, forwarded through pw ssh tunnel)
 PROXY_RAY_PORT=\$(python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()")
 PROXY_DASH_PORT=\$(python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()")
 
@@ -928,6 +999,7 @@ rm -f "\${WORK}/nodeinfo/"*
 ${node_configs}
 
 cleanup() {
+    kill \$(cat "\${WORK}/.pw_tunnel.pid" 2>/dev/null) 2>/dev/null || true
     kill \$(cat "\${WORK}/.proxy_ray_pid" 2>/dev/null) 2>/dev/null || true
     kill \$(cat "\${WORK}/.proxy_dash_pid" 2>/dev/null) 2>/dev/null || true
     for pf in "\${WORK}/.proxy_fwd_"*.pid; do
@@ -1003,7 +1075,7 @@ done
 
 if [ "\${RAY_REACHABLE}" != "true" ]; then
     echo "[ERROR] Cannot reach Ray head at \${LOGIN_HOST}:\${PROXY_RAY_PORT} after 300s"
-    echo "  Check that the SSH reverse tunnel is working."
+    echo "  Check that the pw ssh tunnel to the head node is working."
     exit 1
 fi
 
@@ -1169,35 +1241,6 @@ sleep 1
 touch "\${WORK}/nodeinfo/proxies_ready"
 echo "Forward proxies ready!"
 
-# Verify reverse tunnel connectivity
-echo "Verifying reverse tunnel to Ray head..."
-TUNNEL_OK=false
-for t_attempt in \$(seq 1 30); do
-    if python3 -c "
-import socket, sys
-s = socket.socket()
-s.settimeout(3)
-try:
-    s.connect(('127.0.0.1', ${tunnel_ray_port}))
-    s.close()
-    sys.exit(0)
-except:
-    sys.exit(1)
-" 2>/dev/null; then
-        echo "Reverse tunnel verified — Ray head reachable via 127.0.0.1:${tunnel_ray_port}"
-        TUNNEL_OK=true
-        break
-    fi
-    [ \$((t_attempt % 5)) -eq 0 ] && echo "  Reverse tunnel not ready yet... (\${t_attempt}/30)"
-    sleep 2
-done
-
-if [ "\${TUNNEL_OK}" != "true" ]; then
-    echo "[ERROR] Reverse tunnel to Ray head is not working (127.0.0.1:${tunnel_ray_port})"
-    echo "  The SSH tunnel may not support reverse port forwarding on this site."
-    exit 1
-fi
-
 # Wait for PBS job to finish
 while qstat \${PBS_JOBID} 2>/dev/null | grep -q "\${PBS_JOBID}"; do
     sleep 10
@@ -1244,36 +1287,6 @@ export OMP_NUM_THREADS=1
 export MKL_NUM_THREADS=1
 export OPENBLAS_NUM_THREADS=1
 
-# Wait for Ray head to be reachable via tunnel (up to 5 minutes)
-echo "Waiting for Ray head at 127.0.0.1:${tunnel_ray_port}... (\$(date))"
-attempt=1
-while [ \${attempt} -le 150 ]; do
-    if python3 -c "
-import socket
-s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-s.settimeout(3)
-try:
-    s.connect(('127.0.0.1', ${tunnel_ray_port}))
-    s.close()
-    exit(0)
-except Exception as e:
-    print(f'  Connection error: {e}')
-    exit(1)
-"; then
-        echo "Ray head reachable! (\$(date))"
-        break
-    fi
-    [ \$((attempt % 15)) -eq 0 ] && echo "  Still waiting for Ray head... (\$((attempt * 2))s elapsed)"
-    sleep 2
-    ((attempt++))
-done
-
-if [ \${attempt} -gt 150 ]; then
-    echo "[ERROR] Timeout waiting for Ray head after 300s"
-    echo "  Check that the SSH reverse tunnel is working."
-    exit 1
-fi
-
 # Stop any existing Ray and clean up stale sessions
 ray stop --force 2>/dev/null || true
 rm -rf /tmp/ray/session_* 2>/dev/null || true
@@ -1285,6 +1298,55 @@ for pf in "\${WORK}"/.proxy_*.pid; do
 done
 pkill -f "proxy.*\${WORK}" 2>/dev/null || true
 sleep 1
+
+# Create tunnel back to head node using pw ssh
+PW_REMOTE=""
+for try_cmd in pw ~/pw/pw; do
+    command -v \${try_cmd} &>/dev/null && { PW_REMOTE=\${try_cmd}; break; }
+    [ -x "\${try_cmd}" ] && { PW_REMOTE=\${try_cmd}; break; }
+done
+
+if [ -z "\${PW_REMOTE}" ]; then
+    echo "[ERROR] pw CLI not found on remote host — cannot create tunnel to head node"
+    exit 1
+fi
+
+echo "Creating tunnel to head node (${HEAD_RESOURCE_NAME})..."
+\${PW_REMOTE} ssh -L ${tunnel_ray_port}:localhost:${RAY_PORT} \
+    -L ${tunnel_dashboard_port}:localhost:${DASHBOARD_PORT} \
+    ${HEAD_RESOURCE_NAME} "sleep 86400" </dev/null &
+PW_TUNNEL_PID=\$!
+echo \${PW_TUNNEL_PID} > "\${WORK}/.pw_tunnel.pid"
+sleep 3
+
+# Verify tunnel to head works
+echo "Verifying tunnel to head node..."
+TUNNEL_OK=false
+for t_attempt in \$(seq 1 30); do
+    if python3 -c "
+import socket, sys
+s = socket.socket()
+s.settimeout(3)
+try:
+    s.connect(('127.0.0.1', ${tunnel_ray_port}))
+    s.close()
+    sys.exit(0)
+except:
+    sys.exit(1)
+" 2>/dev/null; then
+        echo "Tunnel to head verified — Ray GCS reachable via 127.0.0.1:${tunnel_ray_port}"
+        TUNNEL_OK=true
+        break
+    fi
+    [ \$((t_attempt % 5)) -eq 0 ] && echo "  Waiting for tunnel... (\${t_attempt}/30)"
+    sleep 2
+done
+
+if [ "\${TUNNEL_OK}" != "true" ]; then
+    echo "[ERROR] Cannot reach head node through pw ssh tunnel"
+    kill \${PW_TUNNEL_PID} 2>/dev/null || true
+    exit 1
+fi
 
 # Start a proxy that listens on all interfaces (0.0.0.0) and forwards to the
 # SSH tunnel at 127.0.0.1. Ray's GCS client resolves loopback to the machine's
