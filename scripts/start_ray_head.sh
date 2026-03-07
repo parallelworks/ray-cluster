@@ -90,6 +90,12 @@ export OMP_NUM_THREADS=1
 export MKL_NUM_THREADS=1
 export OPENBLAS_NUM_THREADS=1
 
+# Tolerate brief network interruptions (e.g., SSH tunnel drops) without marking
+# workers as DEAD. Default is ~10s; we raise to ~90s to survive 30-60s blips.
+export RAY_HEALTH_CHECK_PERIOD_MS=5000
+export RAY_HEALTH_CHECK_FAILURE_THRESHOLD=18
+export RAY_NUM_HEARTBEATS_TIMEOUT=90
+
 echo "Starting Ray head node (coordinator only, --num-cpus=0)..."
 ray start --head \
     --port=${RAY_PORT} \
