@@ -576,75 +576,9 @@ done
 pkill -f "proxy.*\${WORK}" 2>/dev/null || true
 sleep 1
 
-# Create tunnel back to head node using pw ssh
-# (replaces SSH -R reverse tunnels which are blocked on some HPC sites)
-PW_REMOTE=""
-for try_cmd in pw ~/pw/pw; do
-    command -v \${try_cmd} &>/dev/null && { PW_REMOTE=\${try_cmd}; break; }
-    [ -x "\${try_cmd}" ] && { PW_REMOTE=\${try_cmd}; break; }
-done
-
-if [ -z "\${PW_REMOTE}" ]; then
-    echo "[ERROR] pw CLI not found on remote host — cannot create tunnel to head node"
-    exit 1
-fi
-
-echo "Creating tunnel to head node (${HEAD_RESOURCE_NAME})..."
-\${PW_REMOTE} ssh -L ${tunnel_ray_port}:localhost:${RAY_PORT} \
-    -L ${tunnel_dashboard_port}:localhost:${DASHBOARD_PORT} \
-    ${HEAD_RESOURCE_NAME} "sleep 86400" </dev/null &
-PW_TUNNEL_PID=\$!
-echo \${PW_TUNNEL_PID} > "\${WORK}/.pw_tunnel.pid"
-sleep 10
-
-# Verify tunnel to head works
-echo "Verifying tunnel to head node..."
-TUNNEL_OK=false
-for t_attempt in \$(seq 1 60); do
-    # Check if pw ssh process is still alive
-    if ! kill -0 \${PW_TUNNEL_PID} 2>/dev/null; then
-        echo "[ERROR] pw ssh tunnel process died (PID \${PW_TUNNEL_PID})"
-        wait \${PW_TUNNEL_PID} 2>/dev/null
-        break
-    fi
-    if python3 -c "
-import socket, sys
-s = socket.socket()
-s.settimeout(3)
-try:
-    s.connect(('127.0.0.1', ${tunnel_ray_port}))
-    s.close()
-    sys.exit(0)
-except:
-    sys.exit(1)
-" 2>/dev/null; then
-        echo "Tunnel to head verified — Ray GCS reachable via 127.0.0.1:${tunnel_ray_port}"
-        TUNNEL_OK=true
-        break
-    fi
-    [ \$((t_attempt % 10)) -eq 0 ] && echo "  Waiting for tunnel... (\${t_attempt}/60, \$((t_attempt * 2))s elapsed)"
-    sleep 2
-done
-
-if [ "\${TUNNEL_OK}" != "true" ]; then
-    echo "[ERROR] Cannot reach head node through pw ssh tunnel"
-    echo "  Tried: \${PW_REMOTE} ssh -L ${tunnel_ray_port}:localhost:${RAY_PORT} ${HEAD_RESOURCE_NAME}"
-    kill \${PW_TUNNEL_PID} 2>/dev/null || true
-    exit 1
-fi
-
-# Start TCP proxies (compute nodes connect here, forwarded through pw ssh tunnel)
+# Allocate proxy ports early (srun tasks need PROXY_RAY_PORT)
 PROXY_RAY_PORT=\$(python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()")
 PROXY_DASH_PORT=\$(python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()")
-
-python3 -c '${PROXY_PY_CODE}' \${PROXY_RAY_PORT} "127.0.0.1:${tunnel_ray_port}" "\${WORK}/.proxy_ray_pid" &
-sleep 0.5
-python3 -c '${PROXY_PY_CODE}' \${PROXY_DASH_PORT} "127.0.0.1:${tunnel_dashboard_port}" "\${WORK}/.proxy_dash_pid" &
-sleep 0.5
-
-echo "Login node proxies:"
-echo "  Ray GCS: \${LOGIN_HOST}:\${PROXY_RAY_PORT} -> 127.0.0.1:${tunnel_ray_port}"
-echo "  Dashboard: \${LOGIN_HOST}:\${PROXY_DASH_PORT} -> 127.0.0.1:${tunnel_dashboard_port}"
 
 # Write per-node configurations
 mkdir -p "\${WORK}/nodeinfo"
@@ -661,6 +595,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Submit SLURM job immediately (srun task waits for proxies_ready before proceeding)
 echo "Submitting to SLURM: ${srun_cmd}"
 
 # Export variables for srun tasks
@@ -841,7 +776,77 @@ while true; do
     fi
 done
 
-echo "All \${NUM_NODES} node(s) reported. Starting forward tunnel proxies..."
+echo "All \${NUM_NODES} node(s) reported."
+
+# Create tunnel back to head node using pw ssh
+# (replaces SSH -R reverse tunnels which are blocked on some HPC sites)
+PW_REMOTE=""
+for try_cmd in pw ~/pw/pw; do
+    command -v \${try_cmd} &>/dev/null && { PW_REMOTE=\${try_cmd}; break; }
+    [ -x "\${try_cmd}" ] && { PW_REMOTE=\${try_cmd}; break; }
+done
+
+if [ -z "\${PW_REMOTE}" ]; then
+    echo "[ERROR] pw CLI not found on remote host — cannot create tunnel to head node"
+    kill \${SRUN_PID} 2>/dev/null || true
+    exit 1
+fi
+
+echo "Creating tunnel to head node (${HEAD_RESOURCE_NAME})..."
+\${PW_REMOTE} ssh -L ${tunnel_ray_port}:localhost:${RAY_PORT} \
+    -L ${tunnel_dashboard_port}:localhost:${DASHBOARD_PORT} \
+    ${HEAD_RESOURCE_NAME} "sleep 86400" </dev/null &
+PW_TUNNEL_PID=\$!
+echo \${PW_TUNNEL_PID} > "\${WORK}/.pw_tunnel.pid"
+sleep 10
+
+# Verify tunnel to head works
+echo "Verifying tunnel to head node..."
+TUNNEL_OK=false
+for t_attempt in \$(seq 1 60); do
+    if ! kill -0 \${PW_TUNNEL_PID} 2>/dev/null; then
+        echo "[ERROR] pw ssh tunnel process died (PID \${PW_TUNNEL_PID})"
+        wait \${PW_TUNNEL_PID} 2>/dev/null
+        break
+    fi
+    if python3 -c "
+import socket, sys
+s = socket.socket()
+s.settimeout(3)
+try:
+    s.connect(('127.0.0.1', ${tunnel_ray_port}))
+    s.close()
+    sys.exit(0)
+except:
+    sys.exit(1)
+" 2>/dev/null; then
+        echo "Tunnel to head verified — Ray GCS reachable via 127.0.0.1:${tunnel_ray_port}"
+        TUNNEL_OK=true
+        break
+    fi
+    [ \$((t_attempt % 10)) -eq 0 ] && echo "  Waiting for tunnel... (\${t_attempt}/60, \$((t_attempt * 2))s elapsed)"
+    sleep 2
+done
+
+if [ "\${TUNNEL_OK}" != "true" ]; then
+    echo "[ERROR] Cannot reach head node through pw ssh tunnel"
+    echo "  Tried: \${PW_REMOTE} ssh -L ${tunnel_ray_port}:localhost:${RAY_PORT} ${HEAD_RESOURCE_NAME}"
+    kill \${PW_TUNNEL_PID} 2>/dev/null || true
+    kill \${SRUN_PID} 2>/dev/null || true
+    exit 1
+fi
+
+# Start login node proxies (compute nodes connect here, forwarded through pw ssh tunnel)
+python3 -c '${PROXY_PY_CODE}' \${PROXY_RAY_PORT} "127.0.0.1:${tunnel_ray_port}" "\${WORK}/.proxy_ray_pid" &
+sleep 0.5
+python3 -c '${PROXY_PY_CODE}' \${PROXY_DASH_PORT} "127.0.0.1:${tunnel_dashboard_port}" "\${WORK}/.proxy_dash_pid" &
+sleep 0.5
+
+echo "Login node proxies:"
+echo "  Ray GCS: \${LOGIN_HOST}:\${PROXY_RAY_PORT} -> 127.0.0.1:${tunnel_ray_port}"
+echo "  Dashboard: \${LOGIN_HOST}:\${PROXY_DASH_PORT} -> 127.0.0.1:${tunnel_dashboard_port}"
+
+echo "Starting forward tunnel proxies..."
 
 # Kill stale forward proxies from prior runs
 for pf in "\${WORK}"/.proxy_fwd_*.pid; do
@@ -850,8 +855,6 @@ done
 sleep 0.5
 
 # Start forward tunnel proxies: login_node:port -> compute_node:port
-# The SSH -L tunnels go: head:127.0.X.Y:port -> login:port
-# We proxy: login:port -> compute_node:port
 for j in \$(seq 0 \$((\${NUM_NODES} - 1))); do
     NODE_HOST=\$(cat "\${WORK}/nodeinfo/host_\${j}")
     source "\${WORK}/nodeinfo/config_\${j}.sh"
