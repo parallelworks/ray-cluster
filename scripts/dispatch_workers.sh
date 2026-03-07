@@ -845,10 +845,11 @@ for i in $(seq 0 $((NUM_WORKERS - 1))); do
         echo ""
         echo "[site-1] Local worker site: ${site_name} (${slurm_nodes} node(s))"
         # Notify dashboard this site is pending
-        curl -s -X POST "http://localhost:${DASHBOARD_PORT}/api/worker/pending" \
+        pending_resp=$(curl -s --connect-timeout 3 -X POST "http://localhost:${DASHBOARD_PORT}/api/worker/pending" \
             -H "Content-Type: application/json" \
-            -d "{\"site_id\": \"site-1\", \"cluster_name\": \"${site_name}\", \"scheduler_type\": \"${scheduler_type}\"}" \
-            >/dev/null 2>&1 || true
+            -d "{\"site_id\": \"site-1\", \"cluster_name\": \"${site_name}\", \"scheduler_type\": \"${scheduler_type}\"}" 2>&1) \
+            || echo "[site-1] Warning: pending notification failed: ${pending_resp}"
+        echo "[site-1] Pending notification: ${pending_resp}"
         dispatch_local_workers "${i}" "${site_name}" "${scheduler_type}" \
             "${slurm_partition}" "${slurm_account}" "${slurm_qos}" "${slurm_time}" \
             "${slurm_nodes}"
@@ -859,10 +860,11 @@ for i in $(seq 0 $((NUM_WORKERS - 1))); do
         echo ""
         echo "[site-${remote_site_index}] Remote worker site: ${site_name} (${site_ip})"
         # Notify dashboard this site is pending
-        curl -s -X POST "http://localhost:${DASHBOARD_PORT}/api/worker/pending" \
+        pending_resp=$(curl -s --connect-timeout 3 -X POST "http://localhost:${DASHBOARD_PORT}/api/worker/pending" \
             -H "Content-Type: application/json" \
-            -d "{\"site_id\": \"site-${remote_site_index}\", \"cluster_name\": \"${site_name}\", \"scheduler_type\": \"${scheduler_type}\"}" \
-            >/dev/null 2>&1 || true
+            -d "{\"site_id\": \"site-${remote_site_index}\", \"cluster_name\": \"${site_name}\", \"scheduler_type\": \"${scheduler_type}\"}" 2>&1) \
+            || echo "[site-${remote_site_index}] Warning: pending notification failed: ${pending_resp}"
+        echo "[site-${remote_site_index}] Pending notification: ${pending_resp}"
         dispatch_worker "$((remote_site_index - 1))" "${site_name}" "${site_ip}" \
             "${use_scheduler}" "${scheduler_type}" \
             "${slurm_partition}" "${slurm_account}" "${slurm_qos}" "${slurm_time}" \
