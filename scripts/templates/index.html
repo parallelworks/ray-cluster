@@ -758,7 +758,7 @@ function drawTopology() {
 
   // Head node label
   const headName = (headNode.cluster_name || 'RAY HEAD');
-  const shortHead = headName.length > 14 ? headName.slice(0, 13) + '\u2026' : headName;
+  const shortHead = headName.length > 18 ? headName.slice(0, 17) + '\u2026' : headName;
   g.fillStyle = '#22d3ee';
   g.font = 'bold 9px Inter, system-ui, sans-serif';
   g.textAlign = 'center';
@@ -822,7 +822,7 @@ function drawTopology() {
 
     // Site label
     const name = s.cluster_name || siteId;
-    const shortName = name.length > 12 ? name.slice(0, 11) + '\u2026' : name;
+    const shortName = name.length > 18 ? name.slice(0, 17) + '\u2026' : name;
     g.fillStyle = isPending ? color + '88' : color;
     g.font = 'bold 9px Inter, system-ui, sans-serif';
     g.textAlign = 'center';
@@ -921,7 +921,7 @@ function drawPlacement() {
     return;
   }
 
-  const pad = { top: 10, right: 20, bottom: 30, left: 90 };
+  const pad = { top: 10, right: 20, bottom: 30, left: 120 };
   const plotW = w - pad.left - pad.right;
   const plotH = h - pad.top - pad.bottom;
   const maxVal = Math.max(1, ...siteIds.map(s => siteStats[s].task_count || 0));
@@ -948,7 +948,7 @@ function drawPlacement() {
 
     // Label (left)
     const name = s.cluster_name || siteId;
-    const shortName = name.length > 12 ? name.slice(0, 11) + '\u2026' : name;
+    const shortName = name.length > 18 ? name.slice(0, 17) + '\u2026' : name;
     g.fillStyle = color;
     g.font = '11px Inter, system-ui, sans-serif';
     g.textAlign = 'right';
@@ -1114,7 +1114,6 @@ function updateStats() {
       const name = s.cluster_name || siteId;
       const scheduler = s.scheduler_type ? ` (${s.scheduler_type})` : '';
       const nodeCount = (s.node_ips || []).length || 1;
-      const siteLabel = `Site ${idx + 1}`;
       const icon = '&#9900;';
       const avgMs = (s.task_count || 0) > 0 ? Math.round(s.total_ms / s.task_count) : 0;
       const nodeInfo = `${nodeCount} ${nodeCount === 1 ? 'node' : 'nodes'}`;
@@ -1123,7 +1122,7 @@ function updateStats() {
           <div class="site-icon" style="background:${color}20; color:${color};">${icon}</div>
           <div class="site-info">
             <div class="site-name">${name}${scheduler}</div>
-            <div class="site-detail">${siteLabel} &middot; ${nodeInfo} &middot; ${avgMs}ms avg</div>
+            <div class="site-detail">${siteId} &middot; ${nodeInfo} &middot; ${avgMs}ms avg</div>
           </div>
           <div class="site-count" style="color:${color}">${s.task_count || 0}</div>
         </div>`;
@@ -1134,7 +1133,6 @@ function updateStats() {
       const color = getSiteColor(siteId);
       const name = p.cluster_name || siteId;
       const scheduler = p.scheduler_type ? ` (${p.scheduler_type})` : '';
-      const siteLabel = `Site ${idx + 1}`;
       container.innerHTML += `
         <div class="site-card" style="opacity: 0.6; border: 1px dashed ${color}44;">
           <div class="site-icon" style="background:${color}10; color:${color}88;">
@@ -1142,7 +1140,7 @@ function updateStats() {
           </div>
           <div class="site-info">
             <div class="site-name" style="color:${color}aa;">${name}${scheduler}</div>
-            <div class="site-detail" style="color:${color}88;">${siteLabel} &middot; connecting...</div>
+            <div class="site-detail" style="color:${color}88;">${siteId} &middot; connecting...</div>
           </div>
         </div>`;
       idx++;
