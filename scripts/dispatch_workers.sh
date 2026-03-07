@@ -667,7 +667,7 @@ try:
     s.connect(('\${LOGIN_HOST}', \${PROXY_RAY_PORT}))
     s.close()
     sys.exit(0)
-except:
+except Exception:
     sys.exit(1)
 " 2>/dev/null; then
         echo "Ray head reachable! (\$(date))"
@@ -1063,7 +1063,7 @@ try:
     s.connect(('\${LOGIN_HOST}', \${PROXY_RAY_PORT}))
     s.close()
     sys.exit(0)
-except:
+except Exception:
     sys.exit(1)
 " 2>/dev/null; then
         echo "Ray head reachable! (\$(date))"
