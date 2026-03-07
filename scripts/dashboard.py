@@ -63,6 +63,7 @@ def _reset_state():
     state["grid_size"] = 0
     state["image_size"] = 0
     state["fractal_tiles"] = {}
+    state["_seen_jobs"] = {}
     # Preserve pending_sites and head_node across config resets — they are set
     # by dispatch/start_ray_head before the benchmark or cluster_ready sends /api/config
     # state["pending_sites"] is NOT reset here
@@ -112,76 +113,216 @@ async def _broadcast(msg_dict):
 
 # ---------------------------------------------------------------------------
 # Background poller — fetch node & job info from Ray's built-in dashboard API
-# so the custom dashboard reflects cluster activity even for user-submitted jobs.
+# and sync into the dashboard's state so topology, progress, and throughput
+# all work for user-submitted jobs (not just the built-in benchmark).
 # ---------------------------------------------------------------------------
-state["ray_jobs"] = []  # [{job_id, status, ...}]
+import logging
+_poll_log = logging.getLogger("dashboard.poller")
+
+state["ray_jobs"] = []
+state["ray_cluster_nodes"] = []
+# Track which jobs we've already counted so we don't double-count
+state["_seen_jobs"] = {}  # job_id -> last known status
+
+
+async def _fetch_json(path: str):
+    """GET a Ray API endpoint, return parsed JSON or None."""
+    try:
+        resp = await _ray_client.get(path)
+        if resp.status_code == 200:
+            return resp.json()
+        if resp.status_code != 404:
+            _poll_log.warning(f"Ray API {path}: {resp.status_code}")
+    except httpx.ConnectError:
+        pass
+    return None
+
+
+async def _fetch_jobs_list():
+    """Fetch jobs from Ray API, trying v0 first then legacy path."""
+    data = await _fetch_json("/api/v0/jobs")
+    if data is None:
+        data = await _fetch_json("/api/jobs/")
+    if data is None:
+        return []
+    if isinstance(data, dict):
+        return data.get("jobs", [])
+    if isinstance(data, list):
+        return data
+    return []
+
 
 async def _poll_ray_api():
-    """Periodically poll Ray's REST API for cluster nodes and jobs."""
-    import logging
-    log = logging.getLogger("dashboard.poller")
-    logged_first_success = False
+    """Periodically poll Ray's REST API and sync into dashboard state."""
+    logged_first = False
+    head_ip = state.get("ray_head_ip", "")
+
     while True:
         try:
-            # Fetch nodes — try the /nodes?view=summary endpoint
-            try:
-                resp = await _ray_client.get("/nodes?view=summary")
-                if resp.status_code == 200:
-                    data = resp.json()
-                    nodes_summary = data.get("data", {}).get("summary", [])
-                    ray_info = []
-                    for node in nodes_summary:
-                        ray_info.append({
-                            "node_id": node.get("nodeId", node.get("node_id", "")),
-                            "ip": node.get("ip", node.get("nodeManagerAddress", "")),
-                            "hostname": node.get("hostname", ""),
-                            "state": node.get("state", ""),
-                            "cpus": node.get("numCpus", 0) if isinstance(node.get("numCpus"), (int, float)) else 0,
-                            "gpus": node.get("numGpus", 0) if isinstance(node.get("numGpus"), (int, float)) else 0,
-                            "alive": node.get("state", "") == "ALIVE",
-                        })
-                    state["ray_cluster_nodes"] = ray_info
-                    if not logged_first_success:
-                        log.info(f"Ray nodes poll OK: {len(ray_info)} nodes, sample keys: {list(nodes_summary[0].keys()) if nodes_summary else '(empty)'}")
-                else:
-                    log.warning(f"Ray nodes poll: status {resp.status_code}, body: {resp.text[:200]}")
-            except httpx.ConnectError:
-                pass  # Ray dashboard not up yet
+            changed = False
 
-            # Fetch jobs — try /api/v0/jobs first, fall back to /api/jobs/
-            try:
-                jobs_list = []
-                resp = await _ray_client.get("/api/v0/jobs")
-                if resp.status_code == 200:
-                    data = resp.json()
-                    # Could be {"jobs": [...]} or bare list
-                    if isinstance(data, dict):
-                        jobs_list = data.get("jobs", [])
-                    elif isinstance(data, list):
-                        jobs_list = data
-                elif resp.status_code == 404:
-                    # Fall back to older API path
-                    resp = await _ray_client.get("/api/jobs/")
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        if isinstance(data, dict):
-                            jobs_list = data.get("jobs", [])
-                        elif isinstance(data, list):
-                            jobs_list = data
+            # --- Fetch and sync nodes ---
+            data = await _fetch_json("/nodes?view=summary")
+            if data is not None:
+                nodes_summary = data.get("data", {}).get("summary", [])
+                ray_info = []
+                for node in nodes_summary:
+                    ip = node.get("ip", node.get("nodeManagerAddress", ""))
+                    hostname = node.get("hostname", "")
+                    alive = node.get("state", "") == "ALIVE"
+                    cpus = node.get("numCpus", 0)
+                    if not isinstance(cpus, (int, float)):
+                        cpus = 0
+                    gpus = node.get("numGpus", 0)
+                    if not isinstance(gpus, (int, float)):
+                        gpus = 0
+                    ray_info.append({
+                        "node_id": node.get("nodeId", node.get("node_id", "")),
+                        "ip": ip, "hostname": hostname,
+                        "state": node.get("state", ""),
+                        "cpus": cpus, "gpus": gpus, "alive": alive,
+                    })
 
-                if jobs_list:
-                    state["ray_jobs"] = sorted(
-                        jobs_list, key=lambda j: j.get("start_time", 0) or 0, reverse=True
-                    )[:20]
-                    if not logged_first_success:
-                        log.info(f"Ray jobs poll OK: {len(jobs_list)} jobs, sample keys: {list(jobs_list[0].keys()) if jobs_list else '(empty)'}")
-            except httpx.ConnectError:
-                pass  # Ray dashboard not up yet
+                    # Sync worker nodes into state["nodes"] for topology
+                    # Skip the head node (num-cpus=0 coordinator)
+                    if alive and ip and ip != head_ip and cpus > 0:
+                        if ip not in state["nodes"]:
+                            site_id = f"site-{hostname.split('.')[0]}" if hostname else f"site-{ip}"
+                            state["nodes"][ip] = {
+                                "site_id": site_id,
+                                "num_cpus": int(cpus),
+                                "num_gpus": int(gpus),
+                                "cluster_name": hostname.split(".")[0] if hostname else ip,
+                                "scheduler_type": "",
+                                "joined_at": time.time(),
+                            }
+                            # Initialize site_stats for topology rendering
+                            if site_id not in state["site_stats"]:
+                                state["site_stats"][site_id] = {
+                                    "task_count": 0,
+                                    "total_ms": 0,
+                                    "cluster_name": hostname.split(".")[0] if hostname else ip,
+                                    "scheduler_type": "",
+                                    "num_workers": 0,
+                                    "node_ips": [],
+                                }
+                            stats = state["site_stats"][site_id]
+                            stats["num_workers"] += 1
+                            if ip not in stats["node_ips"]:
+                                stats["node_ips"].append(ip)
+                            changed = True
 
-            logged_first_success = True
-            await _broadcast({"type": "ray_cluster", "ray_cluster_nodes": state.get("ray_cluster_nodes", []), "ray_jobs": state.get("ray_jobs", [])})
+                state["ray_cluster_nodes"] = ray_info
+                if not logged_first and ray_info:
+                    _poll_log.info(f"Ray poll: {len(ray_info)} nodes, sample keys: {list(nodes_summary[0].keys()) if nodes_summary else []}")
+
+            # --- Fetch and sync jobs ---
+            jobs_list = await _fetch_jobs_list()
+            if jobs_list:
+                state["ray_jobs"] = sorted(
+                    jobs_list, key=lambda j: j.get("start_time", 0) or 0, reverse=True
+                )[:20]
+
+                if not logged_first:
+                    _poll_log.info(f"Ray poll: {len(jobs_list)} jobs, sample keys: {list(jobs_list[0].keys()) if jobs_list else []}")
+
+                # Sync jobs into task/progress system
+                for job in jobs_list:
+                    job_id = job.get("job_id") or job.get("submission_id") or ""
+                    if not job_id:
+                        continue
+                    status = job.get("status", "UNKNOWN")
+                    prev_status = state["_seen_jobs"].get(job_id)
+
+                    if prev_status == status:
+                        continue  # No change
+                    state["_seen_jobs"][job_id] = status
+
+                    # Job just started running — count as a planned task
+                    if status == "RUNNING" and prev_status is None:
+                        state["total_planned"] += 1
+                        if state["start_time"] is None:
+                            state["start_time"] = time.time()
+                        if state["phase"] == "waiting":
+                            state["phase"] = "user_script"
+                        changed = True
+
+                    # Job completed — count as a completed task
+                    if status in ("SUCCEEDED", "FAILED", "STOPPED") and prev_status not in ("SUCCEEDED", "FAILED", "STOPPED"):
+                        if prev_status is None:
+                            # We missed the RUNNING state — count as planned too
+                            state["total_planned"] += 1
+                            if state["start_time"] is None:
+                                state["start_time"] = time.time()
+                        state["total_completed"] += 1
+                        now = time.time()
+                        duration_ms = 0
+                        start = job.get("start_time", 0) or 0
+                        end = job.get("end_time", 0) or 0
+                        if start and end:
+                            # Normalize timestamps
+                            if start > 1e12:
+                                start /= 1000
+                            if end > 1e12:
+                                end /= 1000
+                            duration_ms = (end - start) * 1000
+
+                        # Pick a node to attribute this job to
+                        task_node_ip = ""
+                        task_site_id = "cluster"
+                        for nip, ndata in state["nodes"].items():
+                            if nip != head_ip:
+                                task_node_ip = nip
+                                task_site_id = ndata.get("site_id", "cluster")
+                                break
+
+                        task = {
+                            "task_id": job_id,
+                            "type": "ray_job",
+                            "node_ip": task_node_ip,
+                            "site_id": task_site_id,
+                            "duration_ms": duration_ms,
+                            "result": status,
+                            "completed_at": now,
+                            "cluster_name": "",
+                            "scheduler_type": "",
+                        }
+                        state["tasks"].append(task)
+
+                        # Update site_stats
+                        if task_site_id in state["site_stats"]:
+                            state["site_stats"][task_site_id]["task_count"] += 1
+                            state["site_stats"][task_site_id]["total_ms"] += duration_ms
+
+                        changed = True
+
+                # Check if all tracked jobs are done
+                running = sum(1 for j in jobs_list if j.get("status") == "RUNNING")
+                if state["total_completed"] > 0 and running == 0 and state["phase"] == "user_script":
+                    state["phase"] = "complete"
+                    changed = True
+
+            logged_first = True
+
+            if changed:
+                await _broadcast({
+                    "type": "worker",
+                    "nodes": state["nodes"],
+                    "site_stats": _safe_site_stats(),
+                    "pending_sites": state["pending_sites"],
+                    "total_completed": state["total_completed"],
+                    "total_planned": state["total_planned"],
+                    "phase": state["phase"],
+                })
+
+            # Always broadcast the raw ray cluster data for the sidebar
+            await _broadcast({
+                "type": "ray_cluster",
+                "ray_cluster_nodes": state.get("ray_cluster_nodes", []),
+                "ray_jobs": state.get("ray_jobs", []),
+            })
         except Exception as e:
-            log.warning(f"Ray API poll error: {e}")
+            _poll_log.warning(f"Ray API poll error: {e}", exc_info=True)
         await asyncio.sleep(5)
 
 @app.on_event("startup")

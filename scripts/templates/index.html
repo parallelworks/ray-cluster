@@ -1641,6 +1641,9 @@ function connect() {
     } else if (msg.type === 'worker') {
       Object.assign(rayNodes, msg.nodes || {});
       mergeSiteStats(msg.site_stats);
+      if (msg.total_completed !== undefined) totalCompleted = msg.total_completed;
+      if (msg.total_planned !== undefined) totalPlanned = msg.total_planned;
+      if (msg.phase) phase = msg.phase;
       // Remove from pending — site is now connected
       if (msg.site_id) delete pendingSites[msg.site_id];
       if (msg.pending_sites) {
