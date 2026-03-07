@@ -420,7 +420,7 @@
         <p style="color: var(--dim); font-size: 0.85rem; margin: 0.5rem 0;">
           Forward the Ray ports to your local machine using the <code style="color: var(--accent);">pw</code> CLI:
         </p>
-        <pre id="ssh-tunnel-cmd" style="background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 1rem; font-size: 0.82rem; color: var(--accent); overflow-x: auto; white-space: pre-wrap; word-break: break-all; margin: 0.5rem 0;">pw ssh -L 6379:&lt;RAY_HEAD_IP&gt;:6379 -L 10001:&lt;RAY_HEAD_IP&gt;:10001 workspace</pre>
+        <pre id="ssh-tunnel-cmd" style="background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 1rem; font-size: 0.82rem; color: var(--accent); overflow-x: auto; white-space: pre-wrap; word-break: break-all; margin: 0.5rem 0;">pw ssh -L 6379:localhost:6379 -L 10001:localhost:10001 workspace</pre>
       </div>
 
       <div style="margin-bottom: 1.5rem;">
@@ -456,7 +456,7 @@ ray.shutdown()</pre>
           Tunnel to the Ray dashboard, then use the Ray Jobs CLI:
         </p>
         <pre id="ray-jobs-cmd" style="background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 1rem; font-size: 0.82rem; color: var(--text); overflow-x: auto; white-space: pre-wrap;"># Tunnel to the Ray dashboard
-pw ssh -L 8265:&lt;RAY_HEAD_IP&gt;:8265 workspace
+pw ssh -L 8265:localhost:8265 workspace
 
 # Submit a job
 ray job submit --address http://127.0.0.1:8265 -- python my_script.py
@@ -728,7 +728,7 @@ function updateClusterOnlyInfo() {
   // Substitute real values into code blocks
   const sshCmd = document.getElementById('ssh-tunnel-cmd');
   if (sshCmd && headIp !== '-') {
-    sshCmd.textContent = `pw ssh -L 6379:${headIp}:6379 -L 10001:${headIp}:10001 workspace`;
+    sshCmd.textContent = `pw ssh -L 6379:localhost:6379 -L 10001:localhost:10001 workspace`;
   }
   const pythonIp = document.getElementById('python-head-ip');
   if (pythonIp && headIp !== '-') {
@@ -736,7 +736,7 @@ function updateClusterOnlyInfo() {
   }
   const rayJobsCmd = document.getElementById('ray-jobs-cmd');
   if (rayJobsCmd && headIp !== '-') {
-    rayJobsCmd.textContent = `# Tunnel to the Ray dashboard\npw ssh -L 8265:${headIp}:8265 workspace\n\n# Submit a job\nray job submit --address http://127.0.0.1:8265 -- python my_script.py\n\n# Check status\nray job list --address http://127.0.0.1:8265`;
+    rayJobsCmd.textContent = `# Tunnel to the Ray dashboard\npw ssh -L 8265:localhost:8265 workspace\n\n# Submit a job\nray job submit --address http://127.0.0.1:8265 -- python my_script.py\n\n# Check status\nray job list --address http://127.0.0.1:8265`;
   }
   const directCmd = document.getElementById('direct-cmd');
   if (directCmd && headIp !== '-') {
