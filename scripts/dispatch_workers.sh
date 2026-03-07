@@ -148,9 +148,15 @@ s.bind(("", int(sys.argv[1])))
 s.listen(64)
 if len(sys.argv) > 3:
     open(sys.argv[3], "w").write(str(os.getpid()))
+dest_host = sys.argv[2].split(":")[0]
+dest_port = int(sys.argv[2].split(":")[1])
 while True:
     c, _ = s.accept()
-    r = socket.create_connection((sys.argv[2].split(":")[0], int(sys.argv[2].split(":")[1])))
+    try:
+        r = socket.create_connection((dest_host, dest_port), timeout=10)
+    except Exception:
+        c.close()
+        continue
     threading.Thread(target=proxy, args=(c,r), daemon=True).start()
     threading.Thread(target=proxy, args=(r,c), daemon=True).start()
 '
@@ -774,6 +780,10 @@ while true; do
     fi
     sleep 2
     attempt=\$((attempt + 1))
+    if [ \$((attempt % 15)) -eq 0 ]; then
+        echo "  Still waiting for compute nodes... (\$((attempt * 2))s elapsed, got \${count}/\${NUM_NODES})"
+        squeue -u \$(whoami) --format="  %i %j %T %M %N" 2>/dev/null | head -5 || true
+    fi
     if [ \${attempt} -gt 300 ]; then
         echo "[ERROR] Timeout waiting for compute nodes after 10min (got \${count}/\${NUM_NODES})"
         kill \${SRUN_PID} 2>/dev/null || true
