@@ -342,7 +342,6 @@ jobs:
       workers:
         type: list
         label: Compute Workers
-        min: 1
         tooltip: Add one or more compute worker sites. Workers connect to the head node and process Ray tasks. For same-site SLURM workers, select the same resource as the head.
         template:
           resource:
