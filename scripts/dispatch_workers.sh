@@ -651,10 +651,11 @@ if [ -f "\${WORK_DIR}/.venv/bin/activate" ]; then
     source "\${WORK_DIR}/.venv/bin/activate"
 fi
 
-# Wait for Ray GCS
-echo "Waiting for Ray head at \${LOGIN_HOST}:\${PROXY_RAY_PORT}..."
+# Wait for Ray GCS (up to 5 minutes — head may still be installing)
+echo "Waiting for Ray head at \${LOGIN_HOST}:\${PROXY_RAY_PORT}... (\$(date))"
+RAY_REACHABLE=false
 attempt=0
-while [ \${attempt} -le 60 ]; do
+while [ \${attempt} -le 150 ]; do
     if python3 -c "
 import socket, sys
 s = socket.socket()
@@ -666,12 +667,20 @@ try:
 except:
     sys.exit(1)
 " 2>/dev/null; then
-        echo "Ray head reachable!"
+        echo "Ray head reachable! (\$(date))"
+        RAY_REACHABLE=true
         break
     fi
+    [ \$((attempt % 15)) -eq 0 ] && [ \${attempt} -gt 0 ] && echo "  Still waiting for Ray head... (\$((attempt * 2))s elapsed)"
     sleep 2
     attempt=\$((attempt + 1))
 done
+
+if [ "\${RAY_REACHABLE}" != "true" ]; then
+    echo "[ERROR] Cannot reach Ray head at \${LOGIN_HOST}:\${PROXY_RAY_PORT} after 300s"
+    echo "  Check that the SSH reverse tunnel is working."
+    exit 1
+fi
 
 ray stop --force 2>/dev/null || true
 rm -rf /tmp/ray/session_* 2>/dev/null || true
@@ -806,6 +815,36 @@ sleep 1
 touch "\${WORK}/nodeinfo/proxies_ready"
 echo "Forward proxies ready!"
 
+# Verify reverse tunnel connectivity before letting compute nodes proceed
+echo "Verifying reverse tunnel to Ray head..."
+TUNNEL_OK=false
+for t_attempt in \$(seq 1 30); do
+    if python3 -c "
+import socket, sys
+s = socket.socket()
+s.settimeout(3)
+try:
+    s.connect(('127.0.0.1', ${tunnel_ray_port}))
+    s.close()
+    sys.exit(0)
+except:
+    sys.exit(1)
+" 2>/dev/null; then
+        echo "Reverse tunnel verified — Ray head reachable via 127.0.0.1:${tunnel_ray_port}"
+        TUNNEL_OK=true
+        break
+    fi
+    [ \$((t_attempt % 5)) -eq 0 ] && echo "  Reverse tunnel not ready yet... (\${t_attempt}/30)"
+    sleep 2
+done
+
+if [ "\${TUNNEL_OK}" != "true" ]; then
+    echo "[ERROR] Reverse tunnel to Ray head is not working (127.0.0.1:${tunnel_ray_port})"
+    echo "  The SSH tunnel may not support reverse port forwarding on this site."
+    kill \${SRUN_PID} 2>/dev/null || true
+    exit 1
+fi
+
 wait \${SRUN_PID}
 WORKER_SCRIPT
 
@@ -937,10 +976,11 @@ if [ -f "\${WORK_DIR}/.venv/bin/activate" ]; then
     source "\${WORK_DIR}/.venv/bin/activate"
 fi
 
-# Wait for Ray GCS
-echo "Waiting for Ray head at \${LOGIN_HOST}:\${PROXY_RAY_PORT}..."
+# Wait for Ray GCS (up to 5 minutes — head may still be installing)
+echo "Waiting for Ray head at \${LOGIN_HOST}:\${PROXY_RAY_PORT}... (\$(date))"
+RAY_REACHABLE=false
 attempt=0
-while [ \${attempt} -le 60 ]; do
+while [ \${attempt} -le 150 ]; do
     if python3 -c "
 import socket, sys
 s = socket.socket()
@@ -952,12 +992,20 @@ try:
 except:
     sys.exit(1)
 " 2>/dev/null; then
-        echo "Ray head reachable!"
+        echo "Ray head reachable! (\$(date))"
+        RAY_REACHABLE=true
         break
     fi
+    [ \$((attempt % 15)) -eq 0 ] && [ \${attempt} -gt 0 ] && echo "  Still waiting for Ray head... (\$((attempt * 2))s elapsed)"
     sleep 2
     attempt=\$((attempt + 1))
 done
+
+if [ "\${RAY_REACHABLE}" != "true" ]; then
+    echo "[ERROR] Cannot reach Ray head at \${LOGIN_HOST}:\${PROXY_RAY_PORT} after 300s"
+    echo "  Check that the SSH reverse tunnel is working."
+    exit 1
+fi
 
 ray stop --force 2>/dev/null || true
 rm -rf /tmp/ray/session_* 2>/dev/null || true
@@ -1121,6 +1169,35 @@ sleep 1
 touch "\${WORK}/nodeinfo/proxies_ready"
 echo "Forward proxies ready!"
 
+# Verify reverse tunnel connectivity
+echo "Verifying reverse tunnel to Ray head..."
+TUNNEL_OK=false
+for t_attempt in \$(seq 1 30); do
+    if python3 -c "
+import socket, sys
+s = socket.socket()
+s.settimeout(3)
+try:
+    s.connect(('127.0.0.1', ${tunnel_ray_port}))
+    s.close()
+    sys.exit(0)
+except:
+    sys.exit(1)
+" 2>/dev/null; then
+        echo "Reverse tunnel verified — Ray head reachable via 127.0.0.1:${tunnel_ray_port}"
+        TUNNEL_OK=true
+        break
+    fi
+    [ \$((t_attempt % 5)) -eq 0 ] && echo "  Reverse tunnel not ready yet... (\${t_attempt}/30)"
+    sleep 2
+done
+
+if [ "\${TUNNEL_OK}" != "true" ]; then
+    echo "[ERROR] Reverse tunnel to Ray head is not working (127.0.0.1:${tunnel_ray_port})"
+    echo "  The SSH tunnel may not support reverse port forwarding on this site."
+    exit 1
+fi
+
 # Wait for PBS job to finish
 while qstat \${PBS_JOBID} 2>/dev/null | grep -q "\${PBS_JOBID}"; do
     sleep 10
@@ -1167,10 +1244,10 @@ export OMP_NUM_THREADS=1
 export MKL_NUM_THREADS=1
 export OPENBLAS_NUM_THREADS=1
 
-# Wait for Ray head to be reachable via tunnel
-echo "Waiting for Ray head at 127.0.0.1:${tunnel_ray_port}..."
+# Wait for Ray head to be reachable via tunnel (up to 5 minutes)
+echo "Waiting for Ray head at 127.0.0.1:${tunnel_ray_port}... (\$(date))"
 attempt=1
-while [ \${attempt} -le 60 ]; do
+while [ \${attempt} -le 150 ]; do
     if python3 -c "
 import socket
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -1183,16 +1260,17 @@ except Exception as e:
     print(f'  Connection error: {e}')
     exit(1)
 "; then
-        echo "Ray head reachable!"
+        echo "Ray head reachable! (\$(date))"
         break
     fi
-    echo "[\${attempt}/60] Waiting for Ray head..."
+    [ \$((attempt % 15)) -eq 0 ] && echo "  Still waiting for Ray head... (\$((attempt * 2))s elapsed)"
     sleep 2
     ((attempt++))
 done
 
-if [ \${attempt} -gt 60 ]; then
-    echo "[ERROR] Timeout waiting for Ray head"
+if [ \${attempt} -gt 150 ]; then
+    echo "[ERROR] Timeout waiting for Ray head after 300s"
+    echo "  Check that the SSH reverse tunnel is working."
     exit 1
 fi
 
