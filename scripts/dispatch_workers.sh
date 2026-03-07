@@ -497,8 +497,7 @@ dispatch_worker() {
         -o StrictHostKeyChecking=no
         -o UserKnownHostsFile=/dev/null
         -o ExitOnForwardFailure=yes
-        -o ServerAliveInterval=15
-        -o ServerAliveCountMax=4
+        -o ServerAliveInterval=0
         -o TCPKeepAlive=yes
         -o "ProxyCommand=${PW_CMD} ssh --proxy-command %h"
     )
@@ -596,12 +595,18 @@ echo "Creating tunnel to head node (${HEAD_RESOURCE_NAME})..."
     ${HEAD_RESOURCE_NAME} "sleep 86400" </dev/null &
 PW_TUNNEL_PID=\$!
 echo \${PW_TUNNEL_PID} > "\${WORK}/.pw_tunnel.pid"
-sleep 3
+sleep 10
 
 # Verify tunnel to head works
 echo "Verifying tunnel to head node..."
 TUNNEL_OK=false
-for t_attempt in \$(seq 1 30); do
+for t_attempt in \$(seq 1 60); do
+    # Check if pw ssh process is still alive
+    if ! kill -0 \${PW_TUNNEL_PID} 2>/dev/null; then
+        echo "[ERROR] pw ssh tunnel process died (PID \${PW_TUNNEL_PID})"
+        wait \${PW_TUNNEL_PID} 2>/dev/null
+        break
+    fi
     if python3 -c "
 import socket, sys
 s = socket.socket()
@@ -617,7 +622,7 @@ except:
         TUNNEL_OK=true
         break
     fi
-    [ \$((t_attempt % 5)) -eq 0 ] && echo "  Waiting for tunnel... (\${t_attempt}/30)"
+    [ \$((t_attempt % 10)) -eq 0 ] && echo "  Waiting for tunnel... (\${t_attempt}/60, \$((t_attempt * 2))s elapsed)"
     sleep 2
 done
 
@@ -949,12 +954,18 @@ echo "Creating tunnel to head node (${HEAD_RESOURCE_NAME})..."
     ${HEAD_RESOURCE_NAME} "sleep 86400" </dev/null &
 PW_TUNNEL_PID=\$!
 echo \${PW_TUNNEL_PID} > "\${WORK}/.pw_tunnel.pid"
-sleep 3
+sleep 10
 
 # Verify tunnel to head works
 echo "Verifying tunnel to head node..."
 TUNNEL_OK=false
-for t_attempt in \$(seq 1 30); do
+for t_attempt in \$(seq 1 60); do
+    # Check if pw ssh process is still alive
+    if ! kill -0 \${PW_TUNNEL_PID} 2>/dev/null; then
+        echo "[ERROR] pw ssh tunnel process died (PID \${PW_TUNNEL_PID})"
+        wait \${PW_TUNNEL_PID} 2>/dev/null
+        break
+    fi
     if python3 -c "
 import socket, sys
 s = socket.socket()
@@ -970,7 +981,7 @@ except:
         TUNNEL_OK=true
         break
     fi
-    [ \$((t_attempt % 5)) -eq 0 ] && echo "  Waiting for tunnel... (\${t_attempt}/30)"
+    [ \$((t_attempt % 10)) -eq 0 ] && echo "  Waiting for tunnel... (\${t_attempt}/60, \$((t_attempt * 2))s elapsed)"
     sleep 2
 done
 
@@ -1317,12 +1328,18 @@ echo "Creating tunnel to head node (${HEAD_RESOURCE_NAME})..."
     ${HEAD_RESOURCE_NAME} "sleep 86400" </dev/null &
 PW_TUNNEL_PID=\$!
 echo \${PW_TUNNEL_PID} > "\${WORK}/.pw_tunnel.pid"
-sleep 3
+sleep 10
 
 # Verify tunnel to head works
 echo "Verifying tunnel to head node..."
 TUNNEL_OK=false
-for t_attempt in \$(seq 1 30); do
+for t_attempt in \$(seq 1 60); do
+    # Check if pw ssh process is still alive
+    if ! kill -0 \${PW_TUNNEL_PID} 2>/dev/null; then
+        echo "[ERROR] pw ssh tunnel process died (PID \${PW_TUNNEL_PID})"
+        wait \${PW_TUNNEL_PID} 2>/dev/null
+        break
+    fi
     if python3 -c "
 import socket, sys
 s = socket.socket()
@@ -1338,7 +1355,7 @@ except:
         TUNNEL_OK=true
         break
     fi
-    [ \$((t_attempt % 5)) -eq 0 ] && echo "  Waiting for tunnel... (\${t_attempt}/30)"
+    [ \$((t_attempt % 10)) -eq 0 ] && echo "  Waiting for tunnel... (\${t_attempt}/60, \$((t_attempt * 2))s elapsed)"
     sleep 2
 done
 
