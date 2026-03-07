@@ -457,6 +457,8 @@ export LOGIN_HOST
 export PROXY_RAY_PORT
 export PROXY_DASH_PORT
 export RAY_NUM_CPUS_SETTING="${RAY_NUM_CPUS:-}"
+export EXPECTED_CLUSTER_NAME="${site_name}"
+export EXPECTED_SITE_ID="${site_id}"
 export OMP_NUM_THREADS=1
 export MKL_NUM_THREADS=1
 export OPENBLAS_NUM_THREADS=1
@@ -567,7 +569,7 @@ if [ -z "\${SCHED_TYPE}" ]; then
     else SCHED_TYPE="ssh"
     fi
 fi
-[ -z "\${CLUSTER_NAME}" ] && CLUSTER_NAME="\${MY_SITE_ID}"
+[ -z "\${CLUSTER_NAME}" ] && CLUSTER_NAME="\${EXPECTED_CLUSTER_NAME:-\${MY_SITE_ID}}"
 
 WORKER_IP=\$(hostname -I 2>/dev/null | awk '{print \$1}')
 NUM_CPUS=\$(nproc 2>/dev/null || echo 1)
@@ -576,7 +578,7 @@ DASHBOARD_URL="http://\${LOGIN_HOST}:\${PROXY_DASH_PORT}"
 curl -s -X POST "\${DASHBOARD_URL}/api/worker" \
     -H "Content-Type: application/json" \
     -d "{
-        \"site_id\": \"\${MY_SITE_ID}\",
+        \"site_id\": \"\${EXPECTED_SITE_ID:-\${MY_SITE_ID}}\",
         \"worker_ip\": \"\${MY_TUNNEL_IP}\",
         \"num_cpus\": \${NUM_CPUS},
         \"cluster_name\": \"\${CLUSTER_NAME}\",
