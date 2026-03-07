@@ -357,13 +357,24 @@ async def _poll_ray_api():
             # --- Fetch Ray task-level counts (individual @ray.remote invocations) ---
             task_summary = await _fetch_json("/api/v0/tasks")
             if task_summary is not None:
-                # /api/v0/tasks returns task list or summary depending on Ray version
-                # Try to extract task counts
+                # Ray /api/v0/tasks returns nested: {data: {result: {total, result: [...]}}}
                 tasks_data = task_summary
-                if isinstance(task_summary, dict):
-                    tasks_data = task_summary.get("data", task_summary)
-                    if isinstance(tasks_data, dict):
-                        tasks_data = tasks_data.get("result", tasks_data)
+                if isinstance(tasks_data, dict):
+                    tasks_data = tasks_data.get("data", tasks_data)
+                if isinstance(tasks_data, dict):
+                    tasks_data = tasks_data.get("result", tasks_data)
+                # Now tasks_data is either:
+                #   {total: N, result: [task_objects...]} — Ray 2.x paginated format
+                #   [task_objects...] — flat list
+                #   {summary: {func: {state: count}}} — summary format
+                task_list = None
+                if isinstance(tasks_data, dict):
+                    if "result" in tasks_data and isinstance(tasks_data["result"], list):
+                        task_list = tasks_data["result"]
+                    elif "summary" in tasks_data:
+                        task_list = None  # handled below
+                elif isinstance(tasks_data, list):
+                    task_list = tasks_data
 
                 ray_tasks_total = 0
                 ray_tasks_finished = 0
@@ -384,9 +395,8 @@ async def _poll_ray_api():
                                     if tstate in ("FINISHED", "FAILED"):
                                         ray_tasks_finished += int(count)
                             ray_tasks_by_func[func_name] = func_total
-                elif isinstance(tasks_data, list):
-                    # Flat list of task objects
-                    for task_obj in tasks_data:
+                elif task_list is not None:
+                    for task_obj in task_list:
                         ray_tasks_total += 1
                         tstate = task_obj.get("state", task_obj.get("scheduling_state", "UNKNOWN"))
                         ray_tasks_by_state[tstate] = ray_tasks_by_state.get(tstate, 0) + 1

@@ -432,9 +432,10 @@ def main():
         return
 
     # Configure dashboard for benchmark mode
+    num_compute = min(20, len(alive_nodes) * 4)
     post_json(f"{dashboard_url}/api/config", {
         "workload_type": "benchmark",
-        "total_tasks": num_tasks + 20 + num_tasks,  # throughput + compute + scaling
+        "total_tasks": num_tasks + num_compute + num_tasks,  # throughput + compute + scaling
         "ray_head_ip": ray_head_ip,
         "num_nodes": len(alive_nodes),
         "total_cpus": int(total_cpus),
@@ -484,7 +485,6 @@ def main():
     # =========================================================================
     # Phase 2: CPU Compute
     # =========================================================================
-    num_compute = min(20, len(alive_nodes) * 4)
     print(f"\n{'='*60}")
     print(f"Phase 2: CPU Compute ({num_compute} tasks, {matrix_size}x{matrix_size} matrices)")
     print(f"{'='*60}")
