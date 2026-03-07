@@ -434,7 +434,7 @@
 ray.init(address="ray://127.0.0.1:10001")
 
 # Or connect directly if running on the head node:
-# ray.init(address="&lt;RAY_HEAD_IP&gt;:6379")
+# ray.init(address="<span id="python-head-ip">&lt;RAY_HEAD_IP&gt;</span>:6379")
 
 @ray.remote
 def my_task(x):
@@ -456,7 +456,7 @@ ray.shutdown()</pre>
         <p style="color: var(--dim); font-size: 0.85rem; margin: 0.5rem 0;">
           Use the Ray Jobs CLI to submit scripts to the cluster. First tunnel to the Ray dashboard port (8265):
         </p>
-        <pre style="background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 1rem; font-size: 0.82rem; color: var(--text); overflow-x: auto; white-space: pre-wrap;"># Tunnel to the Ray dashboard
+        <pre id="ray-jobs-cmd" style="background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 1rem; font-size: 0.82rem; color: var(--text); overflow-x: auto; white-space: pre-wrap;"># Tunnel to the Ray dashboard
 ssh -L 8265:&lt;RAY_HEAD_IP&gt;:8265 -o ProxyCommand="pw ssh --proxy-command %h" $USER@&lt;head-resource&gt;
 
 # Submit a job
@@ -714,9 +714,28 @@ function switchTab(tab) {
 
 function updateClusterOnlyInfo() {
   const headIp = headNode.ip || rayHeadIp || '-';
+  const headResource = headNode.cluster_name || 'head-resource';
   document.getElementById('info-ray-head-ip').textContent = headIp;
   const workerCount = Object.keys(rayNodes).length;
   document.getElementById('info-worker-count').textContent = workerCount;
+
+  // Substitute real values into code blocks
+  const sshCmd = document.getElementById('ssh-tunnel-cmd');
+  if (sshCmd && headIp !== '-') {
+    sshCmd.textContent = `ssh -L 6379:${headIp}:6379 -L 10001:${headIp}:10001 -o ProxyCommand="pw ssh --proxy-command %h" $USER@${headResource}`;
+  }
+  const pythonIp = document.getElementById('python-head-ip');
+  if (pythonIp && headIp !== '-') {
+    pythonIp.textContent = headIp;
+  }
+  const rayJobsCmd = document.getElementById('ray-jobs-cmd');
+  if (rayJobsCmd && headIp !== '-') {
+    rayJobsCmd.textContent = `# Tunnel to the Ray dashboard\nssh -L 8265:${headIp}:8265 -o ProxyCommand="pw ssh --proxy-command %h" $USER@${headResource}\n\n# Submit a job\nray job submit --address http://127.0.0.1:8265 -- python my_script.py\n\n# Check status\nray job list --address http://127.0.0.1:8265`;
+  }
+  const directCmd = document.getElementById('direct-cmd');
+  if (directCmd && headIp !== '-') {
+    directCmd.textContent = `# SSH to head node\npw ssh ${headResource}\n\n# Activate the Ray environment\nsource ~/pw/jobs/*/ray-cluster-demo/.venv/bin/activate\n\n# Set the Ray address\nexport RAY_ADDRESS="${headIp}:6379"\n\n# Run your script\npython my_script.py`;
+  }
 }
 
 // --- Chart label updates ---

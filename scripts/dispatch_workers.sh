@@ -10,7 +10,6 @@
 #   HEAD_RESOURCE_NAME - Name of the head resource (to detect same-site workers)
 #   DASHBOARD_PORT     - Dashboard port on this machine
 #   RAY_HEAD_IP        - Ray head node IP
-#   RAY_NUM_CPUS       - Optional CPU cap per worker node
 #   PYTHON_VERSION     - Python micro version for worker matching
 #   RAY_VERSION        - Ray version to install
 
@@ -182,7 +181,6 @@ set -e
 HEAD_IP="${RAY_HEAD_IP}"
 DASH_PORT="${DASHBOARD_PORT}"
 JOB_DIR="${JOB_DIR}"
-RAY_NUM_CPUS_SETTING="${RAY_NUM_CPUS:-}"
 
 # Pin BLAS threading
 export OMP_NUM_THREADS=1
@@ -199,14 +197,10 @@ rm -rf /tmp/ray/session_* 2>/dev/null || true
 sleep 1
 
 WORKER_IP=\$(hostname -I 2>/dev/null | awk '{print \$1}')
-NUM_CPUS=\${RAY_NUM_CPUS_SETTING:-\$(nproc 2>/dev/null || echo 1)}
 
 echo "Starting Ray worker on \$(hostname) (\${WORKER_IP}), connecting to \${HEAD_IP}:6379..."
-RAY_ARGS=(--address="\${HEAD_IP}:6379")
-if [ -n "\${RAY_NUM_CPUS_SETTING}" ]; then
-    RAY_ARGS+=(--num-cpus="\${RAY_NUM_CPUS_SETTING}")
-fi
-ray start "\${RAY_ARGS[@]}"
+# Register 1 task slot per node. Tasks use internal parallelism (OpenMP, MPI, etc.)
+ray start --address="\${HEAD_IP}:6379" --num-cpus=1
 
 # Auto-detect cluster name
 CLUSTER_NAME=""
@@ -234,7 +228,7 @@ curl -s -X POST "http://\${HEAD_IP}:\${DASH_PORT}/api/worker" \
     -d "{
         \"site_id\": \"site-1\",
         \"worker_ip\": \"\${WORKER_IP}\",
-        \"num_cpus\": \${NUM_CPUS},
+        \"num_cpus\": 1,
         \"cluster_name\": \"\${CLUSTER_NAME}\",
         \"scheduler_type\": \"slurm\"
     }" 2>/dev/null || echo "Note: Could not notify dashboard"
@@ -243,7 +237,6 @@ echo "=========================================="
 echo "Ray Worker RUNNING on \$(hostname)"
 echo "  Head: \${HEAD_IP}:6379"
 echo "  Worker IP: \${WORKER_IP}"
-echo "  CPUs: \${NUM_CPUS}"
 echo "=========================================="
 
 # Keep alive
@@ -466,7 +459,6 @@ export WORK_DIR="\${WORK}"
 export LOGIN_HOST
 export PROXY_RAY_PORT
 export PROXY_DASH_PORT
-export RAY_NUM_CPUS_SETTING="${RAY_NUM_CPUS:-}"
 export EXPECTED_CLUSTER_NAME="${site_name}"
 export EXPECTED_SITE_ID="${site_id}"
 export OMP_NUM_THREADS=1
@@ -540,9 +532,7 @@ RAY_ARGS="\${RAY_ARGS} --node-manager-port=\${MY_RAYLET_PORT}"
 RAY_ARGS="\${RAY_ARGS} --object-manager-port=\${MY_OBJ_PORT}"
 RAY_ARGS="\${RAY_ARGS} --min-worker-port=\${MY_MIN_PORT}"
 RAY_ARGS="\${RAY_ARGS} --max-worker-port=\${MY_MAX_PORT}"
-if [ -n "\${RAY_NUM_CPUS_SETTING}" ]; then
-    RAY_ARGS="\${RAY_ARGS} --num-cpus=\${RAY_NUM_CPUS_SETTING}"
-fi
+RAY_ARGS="\${RAY_ARGS} --num-cpus=1"
 ray start \${RAY_ARGS}
 
 echo "Ray worker started on node \${PROC_ID} (\${NODE_HOST})"
@@ -581,16 +571,13 @@ if [ -z "\${SCHED_TYPE}" ]; then
 fi
 [ -z "\${CLUSTER_NAME}" ] && CLUSTER_NAME="\${EXPECTED_CLUSTER_NAME:-\${MY_SITE_ID}}"
 
-WORKER_IP=\$(hostname -I 2>/dev/null | awk '{print \$1}')
-NUM_CPUS=\$(nproc 2>/dev/null || echo 1)
-
 DASHBOARD_URL="http://\${LOGIN_HOST}:\${PROXY_DASH_PORT}"
 curl -s -X POST "\${DASHBOARD_URL}/api/worker" \
     -H "Content-Type: application/json" \
     -d "{
         \"site_id\": \"\${EXPECTED_SITE_ID:-\${MY_SITE_ID}}\",
         \"worker_ip\": \"\${MY_TUNNEL_IP}\",
-        \"num_cpus\": \${NUM_CPUS},
+        \"num_cpus\": 1,
         \"cluster_name\": \"\${CLUSTER_NAME}\",
         \"scheduler_type\": \"\${SCHED_TYPE}\"
     }" 2>/dev/null || echo "Note: Could not notify dashboard"
@@ -698,8 +685,6 @@ export OMP_NUM_THREADS=1
 export MKL_NUM_THREADS=1
 export OPENBLAS_NUM_THREADS=1
 
-RAY_NUM_CPUS_SETTING="${RAY_NUM_CPUS:-}"
-
 # Wait for Ray head to be reachable via tunnel
 echo "Waiting for Ray head at 127.0.0.1:${tunnel_ray_port}..."
 attempt=1
@@ -761,17 +746,12 @@ RAY_START_ARGS="\${RAY_START_ARGS} --node-manager-port=${raylet}"
 RAY_START_ARGS="\${RAY_START_ARGS} --object-manager-port=${obj}"
 RAY_START_ARGS="\${RAY_START_ARGS} --min-worker-port=${min_port}"
 RAY_START_ARGS="\${RAY_START_ARGS} --max-worker-port=${max_port}"
-if [ -n "\${RAY_NUM_CPUS_SETTING}" ]; then
-    RAY_START_ARGS="\${RAY_START_ARGS} --num-cpus=\${RAY_NUM_CPUS_SETTING}"
-fi
+# Register 1 task slot per node. Tasks use internal parallelism (OpenMP, MPI, etc.)
+RAY_START_ARGS="\${RAY_START_ARGS} --num-cpus=1"
 ray start \${RAY_START_ARGS}
 
 echo "Ray worker started!"
 ray status 2>/dev/null || echo "Note: ray status may not work on worker node"
-
-# Notify dashboard that worker joined
-WORKER_IP=\$(hostname -I 2>/dev/null | awk '{print \$1}')
-NUM_CPUS=\${RAY_NUM_CPUS_SETTING:-\$(nproc 2>/dev/null || echo 1)}
 
 # Auto-detect cluster name and scheduler type using pw cluster list + hostname matching
 SCHED_TYPE=""
@@ -821,7 +801,7 @@ curl -s -X POST "\${DASHBOARD_URL}/api/worker" \\
     -d "{
         \"site_id\": \"${site_id}\",
         \"worker_ip\": \"${ip}\",
-        \"num_cpus\": \${NUM_CPUS},
+        \"num_cpus\": 1,
         \"cluster_name\": \"\${CLUSTER_NAME}\",
         \"scheduler_type\": \"\${SCHED_TYPE}\"
     }" 2>/dev/null || echo "Note: Could not notify dashboard"
@@ -830,7 +810,6 @@ echo "=========================================="
 echo "Ray Worker RUNNING"
 echo "  Connected to: 127.0.0.1:\${PROXY_RAY_PORT} (proxy -> 127.0.0.1:${tunnel_ray_port})"
 echo "  Worker IP: ${ip}"
-echo "  CPUs: \${NUM_CPUS}"
 echo "=========================================="
 
 # Keep SSH session alive

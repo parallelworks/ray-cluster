@@ -146,11 +146,6 @@ jobs:
           export WORKERS_JSON='${{ inputs.workers }}'
           export HEAD_RESOURCE_NAME='${{ inputs.head.resource.name }}'
 
-          NUM_CPUS_SETTING="${{ inputs.ray_settings.num_cpus }}"
-          if [ "${NUM_CPUS_SETTING}" != "auto" ]; then
-            export RAY_NUM_CPUS="${NUM_CPUS_SETTING}"
-          fi
-
           bash scripts/dispatch_workers.sh
 
   # =============================================================================
@@ -359,7 +354,8 @@ jobs:
               time:
                 label: Walltime
                 type: string
-                default: "00:05:00"
+                default: "01:00:00"
+                tooltip: "SLURM walltime (HH:MM:SS). Workers terminate when this expires. Use a longer walltime for cluster_only mode or large workloads."
                 ignore: ${{ inputs.workers.[index].resource.schedulerType != 'slurm' || inputs.workers.[index].scheduler == false }}
 
               scheduler_directives:
@@ -407,24 +403,9 @@ jobs:
               - value: "2.38.0"
                 label: "2.38.0"
 
-          num_cpus:
-            type: dropdown
-            label: CPUs per Worker Node
-            tooltip: Number of CPUs each worker registers with Ray (limits concurrent tasks). Keep low for cross-site tunneled clusters to avoid overloading SSH tunnels.
-            default: "1"
-            options:
-              - value: "1"
-                label: "1 CPU (recommended for cross-site)"
-              - value: "2"
-                label: "2 CPUs"
-              - value: "4"
-                label: "4 CPUs"
-              - value: "8"
-                label: "8 CPUs"
-              - value: "16"
-                label: "16 CPUs"
-              - value: "auto"
-                label: "Auto (all cores)"
+          # Each worker node registers 1 Ray task slot. Ray handles placement
+          # across nodes; tasks use internal parallelism (OpenMP, MPI, PyTorch)
+          # for multi-core/GPU work within each node.
 
       # -----------------------------------------------------------------------
       # Workload Settings
