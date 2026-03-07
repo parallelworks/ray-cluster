@@ -232,7 +232,6 @@ jobs:
 
           # Run user script or keep alive
           RUN_USER_SCRIPT='${{ inputs.workload_settings.run_user_script }}'
-          SCRIPT_TYPE='${{ inputs.workload_settings.script_type }}'
           KEEP_ALIVE='${{ inputs.workload_settings.keep_alive }}'
 
           if [ "${RUN_USER_SCRIPT}" = "true" ]; then
@@ -243,46 +242,34 @@ jobs:
               -d '{"phase": "user_script"}'
 
             JOB_DIR="${PW_PARENT_JOB_DIR}"
-            if [ "${SCRIPT_TYPE}" = "python" ]; then
-              SCRIPT_FILE="${JOB_DIR}/user_script.py"
-            else
-              SCRIPT_FILE="${JOB_DIR}/user_script.sh"
-            fi
+            SCRIPT_FILE="${JOB_DIR}/user_script"
 
             cat > "${SCRIPT_FILE}" << 'USERSCRIPT_EOF'
           ${{ inputs.workload_settings.user_script }}
           USERSCRIPT_EOF
+
+            # If no shebang, prepend #!/usr/bin/env python3
+            if ! head -1 "${SCRIPT_FILE}" | grep -q '^#!'; then
+              sed -i '1i#!/usr/bin/env python3' "${SCRIPT_FILE}"
+            fi
+            chmod +x "${SCRIPT_FILE}"
 
             # Activate the venv and set Ray address
             VENV_DIR="${JOB_DIR%/}/.venv"
             [ -f "${VENV_DIR}/bin/activate" ] && source "${VENV_DIR}/bin/activate"
             export RAY_ADDRESS="${RAY_HEAD_IP}:6379"
 
-            echo "Running user script (${SCRIPT_TYPE})..."
-            if [ "${SCRIPT_TYPE}" = "python" ]; then
-              if python3 "${SCRIPT_FILE}"; then
-                echo "User script completed successfully."
-                curl -s -X POST "${DASHBOARD_URL}/api/phase" \
-                  -H "Content-Type: application/json" \
-                  -d '{"phase": "complete"}'
-              else
-                echo "ERROR: User script failed with exit code $?"
-                curl -s -X POST "${DASHBOARD_URL}/api/phase" \
-                  -H "Content-Type: application/json" \
-                  -d '{"phase": "script_failed"}'
-              fi
+            echo "Running user script..."
+            if "${SCRIPT_FILE}"; then
+              echo "User script completed successfully."
+              curl -s -X POST "${DASHBOARD_URL}/api/phase" \
+                -H "Content-Type: application/json" \
+                -d '{"phase": "complete"}'
             else
-              if bash "${SCRIPT_FILE}"; then
-                echo "User script completed successfully."
-                curl -s -X POST "${DASHBOARD_URL}/api/phase" \
-                  -H "Content-Type: application/json" \
-                  -d '{"phase": "complete"}'
-              else
-                echo "ERROR: User script failed with exit code $?"
-                curl -s -X POST "${DASHBOARD_URL}/api/phase" \
-                  -H "Content-Type: application/json" \
-                  -d '{"phase": "script_failed"}'
-              fi
+              echo "ERROR: User script failed with exit code $?"
+              curl -s -X POST "${DASHBOARD_URL}/api/phase" \
+                -H "Content-Type: application/json" \
+                -d '{"phase": "script_failed"}'
             fi
 
             # After script: keep alive or exit
@@ -536,22 +523,10 @@ jobs:
           user_script:
             type: editor
             label: User Script
-            tooltip: "Script to run on the head node after the cluster is ready. Ray is pre-configured — just import ray and connect."
+            tooltip: "Script to run on the head node after the cluster is ready. Ray is pre-configured — just import ray and connect. Defaults to Python; add a shebang (e.g. #!/bin/bash) for other languages."
             optional: true
             hidden: ${{ inputs.workload_settings.workload_type != 'cluster_only' || inputs.workload_settings.run_user_script == false }}
             ignore: ${{ inputs.workload_settings.workload_type != 'cluster_only' || inputs.workload_settings.run_user_script == false }}
-
-          script_type:
-            type: dropdown
-            label: Script Type
-            default: python
-            hidden: ${{ inputs.workload_settings.workload_type != 'cluster_only' || inputs.workload_settings.run_user_script == false }}
-            ignore: ${{ inputs.workload_settings.workload_type != 'cluster_only' || inputs.workload_settings.run_user_script == false }}
-            options:
-              - value: python
-                label: Python
-              - value: bash
-                label: Bash
 
           keep_alive:
             type: boolean
