@@ -125,28 +125,46 @@ state["ray_cluster_nodes"] = []
 state["_seen_jobs"] = {}  # job_id -> last known status
 
 
+_ray_connect_failures = 0
+
 async def _fetch_json(path: str):
     """GET a Ray API endpoint, return parsed JSON or None."""
+    global _ray_connect_failures
     try:
         resp = await _ray_client.get(path)
+        if _ray_connect_failures > 0:
+            _poll_log.info(f"Ray API reconnected after {_ray_connect_failures} failures")
+            _ray_connect_failures = 0
         if resp.status_code == 200:
             return resp.json()
         if resp.status_code != 404:
             _poll_log.warning(f"Ray API {path}: {resp.status_code}")
     except httpx.ConnectError:
-        pass
+        _ray_connect_failures += 1
+        if _ray_connect_failures == 1 or _ray_connect_failures % 12 == 0:
+            _poll_log.warning(f"Cannot connect to Ray dashboard at {_ray_client.base_url} ({_ray_connect_failures} failures)")
     return None
 
 
 async def _fetch_jobs_list():
-    """Fetch jobs from Ray API, trying v0 first then legacy path."""
+    """Fetch jobs from Ray API. Prefer /api/jobs/ (flat list with timestamps)."""
+    # /api/jobs/ returns a flat list with start_time/end_time fields
+    data = await _fetch_json("/api/jobs/")
+    if isinstance(data, list) and data:
+        return data
+    # /api/v0/jobs returns nested: {"data": {"result": {"result": [...]}}}
     data = await _fetch_json("/api/v0/jobs")
-    if data is None:
-        data = await _fetch_json("/api/jobs/")
-    if data is None:
-        return []
     if isinstance(data, dict):
-        return data.get("jobs", [])
+        jobs = data.get("jobs", [])
+        if not jobs:
+            # Nested v0 format
+            inner = data.get("data", {})
+            if isinstance(inner, dict):
+                inner = inner.get("result", {})
+                if isinstance(inner, dict):
+                    jobs = inner.get("result", [])
+        if isinstance(jobs, list):
+            return jobs
     if isinstance(data, list):
         return data
     return []
@@ -155,11 +173,11 @@ async def _fetch_jobs_list():
 async def _poll_ray_api():
     """Periodically poll Ray's REST API and sync into dashboard state."""
     logged_first = False
-    head_ip = state.get("ray_head_ip", "")
 
     while True:
         try:
             changed = False
+            head_ip = state.get("ray_head_ip", "")
 
             # --- Fetch and sync nodes ---
             # Ray's /nodes?view=summary nests key fields under "raylet":
