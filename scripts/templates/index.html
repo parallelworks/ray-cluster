@@ -1566,6 +1566,12 @@ function connect() {
       if (msg.ray_cluster_nodes || msg.ray_jobs) {
         renderRayClusterActivity(msg.ray_cluster_nodes || [], msg.ray_jobs || []);
       }
+      // Apply ray task counts on init
+      if (msg.ray_task_counts && msg.ray_task_counts.total > 0) {
+        const tc = msg.ray_task_counts;
+        if (tc.total > totalPlanned) totalPlanned = tc.total;
+        if (tc.finished > totalCompleted) totalCompleted = tc.finished;
+      }
 
       if (totalCompleted > 0) {
         fetch(basePath + '/api/state').then(r => r.json()).then(data => {
@@ -1704,6 +1710,23 @@ function connect() {
       updateStats();
     } else if (msg.type === 'ray_cluster') {
       renderRayClusterActivity(msg.ray_cluster_nodes || [], msg.ray_jobs || []);
+      // Update task counts from Ray Tasks API (individual @ray.remote invocations)
+      if (msg.ray_task_counts && msg.ray_task_counts.total > 0) {
+        const tc = msg.ray_task_counts;
+        if (tc.total > totalPlanned) totalPlanned = tc.total;
+        if (tc.finished > totalCompleted) totalCompleted = tc.finished;
+        // Distribute task counts across sites proportionally to worker count
+        const siteIds = Object.keys(siteStats);
+        if (siteIds.length > 0) {
+          const totalWorkers = siteIds.reduce((sum, s) => sum + (siteStats[s].num_workers || 1), 0);
+          siteIds.forEach(s => {
+            const proportion = (siteStats[s].num_workers || 1) / totalWorkers;
+            siteStats[s].task_count = Math.round(tc.finished * proportion);
+          });
+        }
+        updateStats();
+        if (activeTab === 'cluster') drawTopology();
+      }
     }
   };
 

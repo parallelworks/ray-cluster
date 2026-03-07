@@ -64,6 +64,7 @@ def _reset_state():
     state["image_size"] = 0
     state["fractal_tiles"] = {}
     state["_seen_jobs"] = {}
+    state["_ray_task_counts"] = {}
     global _dashboard_start_time
     _dashboard_start_time = time.time()
     # Preserve pending_sites and head_node across config resets — they are set
@@ -125,6 +126,7 @@ state["ray_jobs"] = []
 state["ray_cluster_nodes"] = []
 # Track which jobs we've already counted so we don't double-count
 state["_seen_jobs"] = {}  # job_id -> last known status
+state["_ray_task_counts"] = {}  # Track Ray task counts: {total, by_state, by_func}
 _dashboard_start_time = time.time()  # ignore jobs that finished before dashboard started
 
 
@@ -352,6 +354,69 @@ async def _poll_ray_api():
                     state["phase"] = "complete"
                     changed = True
 
+            # --- Fetch Ray task-level counts (individual @ray.remote invocations) ---
+            task_summary = await _fetch_json("/api/v0/tasks")
+            if task_summary is not None:
+                # /api/v0/tasks returns task list or summary depending on Ray version
+                # Try to extract task counts
+                tasks_data = task_summary
+                if isinstance(task_summary, dict):
+                    tasks_data = task_summary.get("data", task_summary)
+                    if isinstance(tasks_data, dict):
+                        tasks_data = tasks_data.get("result", tasks_data)
+
+                ray_tasks_total = 0
+                ray_tasks_finished = 0
+                ray_tasks_by_state = {}
+                ray_tasks_by_func = {}
+                ray_tasks_by_node = {}
+
+                if isinstance(tasks_data, dict) and "summary" in tasks_data:
+                    # Summary format: {summary: {func_name: {state: count}}}
+                    for func_name, state_counts in tasks_data["summary"].items():
+                        if isinstance(state_counts, dict):
+                            func_total = 0
+                            for tstate, count in state_counts.items():
+                                if isinstance(count, (int, float)):
+                                    ray_tasks_total += int(count)
+                                    func_total += int(count)
+                                    ray_tasks_by_state[tstate] = ray_tasks_by_state.get(tstate, 0) + int(count)
+                                    if tstate in ("FINISHED", "FAILED"):
+                                        ray_tasks_finished += int(count)
+                            ray_tasks_by_func[func_name] = func_total
+                elif isinstance(tasks_data, list):
+                    # Flat list of task objects
+                    for task_obj in tasks_data:
+                        ray_tasks_total += 1
+                        tstate = task_obj.get("state", task_obj.get("scheduling_state", "UNKNOWN"))
+                        ray_tasks_by_state[tstate] = ray_tasks_by_state.get(tstate, 0) + 1
+                        if tstate in ("FINISHED", "FAILED"):
+                            ray_tasks_finished += 1
+                        func_name = task_obj.get("func_or_class_name", task_obj.get("name", "unknown"))
+                        ray_tasks_by_func[func_name] = ray_tasks_by_func.get(func_name, 0) + 1
+                        node_id = task_obj.get("node_id", "")
+                        if node_id:
+                            ray_tasks_by_node[node_id] = ray_tasks_by_node.get(node_id, 0) + 1
+
+                old_counts = state.get("_ray_task_counts", {})
+                if ray_tasks_total > 0 and (
+                    ray_tasks_total != old_counts.get("total", 0) or
+                    ray_tasks_finished != old_counts.get("finished", 0)
+                ):
+                    state["_ray_task_counts"] = {
+                        "total": ray_tasks_total,
+                        "finished": ray_tasks_finished,
+                        "by_state": ray_tasks_by_state,
+                        "by_func": ray_tasks_by_func,
+                        "by_node": ray_tasks_by_node,
+                    }
+                    # Update task placement counts using real Ray task counts
+                    # instead of job-level counts
+                    if state["phase"] in ("user_script", "complete"):
+                        state["total_planned"] = max(state["total_planned"], ray_tasks_total)
+                        state["total_completed"] = max(state["total_completed"], ray_tasks_finished)
+                    changed = True
+
             logged_first = True
 
             if changed:
@@ -370,6 +435,7 @@ async def _poll_ray_api():
                 "type": "ray_cluster",
                 "ray_cluster_nodes": state.get("ray_cluster_nodes", []),
                 "ray_jobs": state.get("ray_jobs", []),
+                "ray_task_counts": state.get("_ray_task_counts", {}),
             })
         except Exception as e:
             _poll_log.warning(f"Ray API poll error: {e}", exc_info=True)
@@ -666,10 +732,10 @@ def _safe_site_stats():
 @app.get("/api/debug/ray")
 async def debug_ray():
     """Debug endpoint — shows raw Ray API poll results."""
-    debug = {"ray_cluster_nodes": state.get("ray_cluster_nodes", []), "ray_jobs": state.get("ray_jobs", [])}
+    debug = {"ray_cluster_nodes": state.get("ray_cluster_nodes", []), "ray_jobs": state.get("ray_jobs", []), "ray_task_counts": state.get("_ray_task_counts", {})}
     # Also try fetching live to show raw responses
     raw = {}
-    for path in ["/nodes?view=summary", "/api/v0/jobs", "/api/jobs/"]:
+    for path in ["/nodes?view=summary", "/api/v0/jobs", "/api/jobs/", "/api/v0/tasks"]:
         try:
             resp = await _ray_client.get(path)
             raw[path] = {"status": resp.status_code, "body": resp.json() if resp.status_code == 200 else resp.text[:500]}
@@ -699,6 +765,7 @@ async def get_state():
         "pending_sites": state["pending_sites"],
         "ray_cluster_nodes": state.get("ray_cluster_nodes", []),
         "ray_jobs": state.get("ray_jobs", []),
+        "ray_task_counts": state.get("_ray_task_counts", {}),
     }
     if state["workload_type"] == "fractal":
         result["grid_size"] = state["grid_size"]
@@ -755,6 +822,7 @@ async def websocket_endpoint(ws: WebSocket):
             "pending_sites": state["pending_sites"],
             "ray_cluster_nodes": state.get("ray_cluster_nodes", []),
             "ray_jobs": state.get("ray_jobs", []),
+            "ray_task_counts": state.get("_ray_task_counts", {}),
         }))
         while True:
             await ws.receive_text()
