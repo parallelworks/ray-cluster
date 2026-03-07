@@ -57,10 +57,28 @@ if [[ "${DASHBOARD_URL}" == *"localhost"* || "${DASHBOARD_URL}" == *"127.0.0.1"*
     fi
 fi
 
-# No waiting for workers — Ray schedules tasks as nodes join.
-# Tasks submitted immediately; workers pick them up as they come online.
+# Wait for at least 1 worker CPU before submitting tasks.
+# Without this, early-submitted tasks can timeout before any worker joins.
 NUM_WORKER_SITES="${NUM_WORKER_SITES:-0}"
-echo "Expected worker sites: ${NUM_WORKER_SITES} (tasks start immediately, workers join dynamically)"
+echo "Expected worker sites: ${NUM_WORKER_SITES}"
+echo "Waiting for at least 1 worker CPU..."
+
+MAX_WAIT=600
+WAITED=0
+while true; do
+    CPUS=$(python3 -c "import ray; ray.init(address='${RAY_HEAD_IP}:6379', ignore_reinit_error=True); print(int(ray.cluster_resources().get('CPU', 0)))" 2>/dev/null || echo "0")
+    if [ "${CPUS}" -gt 0 ] 2>/dev/null; then
+        echo "Cluster has ${CPUS} CPUs available — starting workload"
+        break
+    fi
+    if [ ${WAITED} -ge ${MAX_WAIT} ]; then
+        echo "WARNING: No workers after ${MAX_WAIT}s — starting anyway (tasks will queue)"
+        break
+    fi
+    sleep 5
+    WAITED=$((WAITED + 5))
+    [ $((WAITED % 30)) -eq 0 ] && echo "  Still waiting for workers... (${WAITED}s elapsed)"
+done
 
 ray status || echo "[WARN] ray status failed (head may not be reachable from login node)"
 
