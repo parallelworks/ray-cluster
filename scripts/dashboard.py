@@ -162,30 +162,43 @@ async def _poll_ray_api():
             changed = False
 
             # --- Fetch and sync nodes ---
+            # Ray's /nodes?view=summary nests key fields under "raylet":
+            #   raylet.state = "ALIVE"
+            #   raylet.nodeId = "..."
+            #   raylet.nodeManagerAddress = IP
+            #   raylet.nodeManagerHostname = hostname
+            #   raylet.isHeadNode = true/false
+            #   raylet.resourcesTotal.CPU = count
+            #   raylet.resourcesTotal.GPU = count
+            # Top-level: ip, hostname (duplicates), cpus (array), gpus (array)
             data = await _fetch_json("/nodes?view=summary")
             if data is not None:
                 nodes_summary = data.get("data", {}).get("summary", [])
                 ray_info = []
                 for node in nodes_summary:
-                    ip = node.get("ip", node.get("nodeManagerAddress", ""))
-                    hostname = node.get("hostname", "")
-                    alive = node.get("state", "") == "ALIVE"
-                    cpus = node.get("numCpus", 0)
+                    raylet = node.get("raylet", {})
+                    resources = raylet.get("resourcesTotal", {})
+                    ip = node.get("ip", "") or raylet.get("nodeManagerAddress", "")
+                    hostname = node.get("hostname", "") or raylet.get("nodeManagerHostname", "")
+                    alive = raylet.get("state", "") == "ALIVE"
+                    is_head = raylet.get("isHeadNode", False)
+                    cpus = resources.get("CPU", 0)
                     if not isinstance(cpus, (int, float)):
                         cpus = 0
-                    gpus = node.get("numGpus", 0)
+                    gpus = resources.get("GPU", 0)
                     if not isinstance(gpus, (int, float)):
                         gpus = 0
                     ray_info.append({
-                        "node_id": node.get("nodeId", node.get("node_id", "")),
+                        "node_id": raylet.get("nodeId", ""),
                         "ip": ip, "hostname": hostname,
-                        "state": node.get("state", ""),
-                        "cpus": cpus, "gpus": gpus, "alive": alive,
+                        "state": raylet.get("state", ""),
+                        "cpus": int(cpus), "gpus": int(gpus),
+                        "alive": alive, "is_head": is_head,
                     })
 
                     # Sync worker nodes into state["nodes"] for topology
-                    # Skip the head node (num-cpus=0 coordinator)
-                    if alive and ip and ip != head_ip and cpus > 0:
+                    # Skip the head node (coordinator)
+                    if alive and ip and not is_head and cpus > 0:
                         if ip not in state["nodes"]:
                             site_id = f"site-{hostname.split('.')[0]}" if hostname else f"site-{ip}"
                             state["nodes"][ip] = {
