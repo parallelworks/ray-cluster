@@ -71,16 +71,37 @@ jobs:
           head_ip = os.environ.get('PW_RESOURCE_IP', '')
           pw_user = os.environ.get('PW_USER', '')
           pw_cmd = os.environ.get('PW_CMD', 'pw')
+
+          # Build scheduler type lookup from pw cluster ls
+          cluster_types = {}
+          try:
+              out = subprocess.check_output([pw_cmd, 'cluster', 'ls'], text=True, timeout=10)
+              for line in out.strip().split('\n'):
+                  parts = line.split()
+                  if len(parts) >= 3 and parts[0].startswith('pw://'):
+                      cname = parts[0].split('/')[-1]
+                      ctype = parts[2]
+                      if 'slurm' in ctype: cluster_types[cname] = 'slurm'
+                      elif 'pbs' in ctype: cluster_types[cname] = 'pbs'
+                      else: cluster_types[cname] = ctype
+          except Exception as e:
+              print(f'Warning: could not list clusters: {e}')
+
           seen = set()
           for w in workers:
-              ip = w.get('resource', {}).get('ip', '')
-              name = w.get('resource', {}).get('name', ip)
-              if not ip or ip in seen or ip == head_ip:
+              res = w.get('resource', {})
+              # Handle resource as string (name) or object (with ip/name/schedulerType)
+              if isinstance(res, str):
+                  name = res
+                  sched = cluster_types.get(name, '')
+              else:
+                  name = res.get('name', res.get('ip', ''))
+                  sched = res.get('schedulerType', cluster_types.get(name, ''))
+              if not name or name in seen:
                   continue
-              seen.add(ip)
-              sched = w.get('resource', {}).get('schedulerType', '')
+              seen.add(name)
 
-              print(f'Cleaning up {name} ({ip}, scheduler={sched})...')
+              print(f'Cleaning up {name} (scheduler={sched})...')
 
               ssh_base = [
                   'ssh', '-i', os.path.expanduser('~/.ssh/pwcli'),
