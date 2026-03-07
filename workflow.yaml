@@ -192,7 +192,7 @@ jobs:
           echo "=========================================="
           echo "  Ray Version: ${{ inputs.ray_settings.ray_version }}"
           echo ""
-          echo "  Dashboard: https://${PW_PLATFORM_HOST}${basepath}/"
+          echo "  Dashboard: ${PW_PLATFORM_HOST}${basepath}/"
           echo "  Local tunnel: ssh -L ${local_port}:localhost:${local_port} -o ProxyCommand=\"pw ssh --proxy-command %h\" ${PW_USER}@workspace"
           echo "  Then access: http://localhost:${local_port}/"
           echo "=========================================="
