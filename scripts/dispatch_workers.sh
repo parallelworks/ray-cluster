@@ -497,11 +497,16 @@ dispatch_worker() {
         -o StrictHostKeyChecking=no
         -o UserKnownHostsFile=/dev/null
         -o ExitOnForwardFailure=yes
+        -o ConnectTimeout=30
         -o ServerAliveInterval=15
         -o ServerAliveCountMax=120
         -o TCPKeepAlive=yes
         -o "ProxyCommand=${PW_CMD} ssh --proxy-command %h"
     )
+
+    # Reverse tunnels: remote site can reach head node's Ray GCS + dashboard
+    SSH_ARGS+=(-R "${tunnel_ray_port}:localhost:${RAY_PORT}")
+    SSH_ARGS+=(-R "${tunnel_dashboard_port}:localhost:${DASHBOARD_PORT}")
 
     # Forward tunnels: head can reach each worker node via unique loopback IPs
     for j in $(seq 0 $((num_nodes - 1))); do
@@ -587,7 +592,6 @@ rm -f "\${WORK}/nodeinfo/"*
 ${node_configs}
 
 cleanup() {
-    kill \$(cat "\${WORK}/.pw_tunnel.pid" 2>/dev/null) 2>/dev/null || true
     kill \$(cat "\${WORK}/.proxy_ray_pid" 2>/dev/null) 2>/dev/null || true
     kill \$(cat "\${WORK}/.proxy_dash_pid" 2>/dev/null) 2>/dev/null || true
     for pf in "\${WORK}/.proxy_fwd_"*.pid; do
@@ -779,67 +783,11 @@ done
 
 echo "All \${NUM_NODES} node(s) reported."
 
-# Create tunnel back to head node using pw ssh
-# (replaces SSH -R reverse tunnels which are blocked on some HPC sites)
-PW_REMOTE=""
-for try_cmd in pw ~/pw/pw; do
-    command -v \${try_cmd} &>/dev/null && { PW_REMOTE=\${try_cmd}; break; }
-    [ -x "\${try_cmd}" ] && { PW_REMOTE=\${try_cmd}; break; }
-done
-
-if [ -z "\${PW_REMOTE}" ]; then
-    echo "[ERROR] pw CLI not found on remote host — cannot create tunnel to head node"
-    kill \${SRUN_PID} 2>/dev/null || true
-    exit 1
-fi
-
-echo "Creating tunnel to head node (${HEAD_RESOURCE_NAME})..."
-# Try real SSH with PW proxy-command for reliable -L port forwarding
-# (pw ssh -L may not forward TCP data through the PW proxy)
-TUNNEL_LOG="\${WORK}/.tunnel_ssh.log"
-ssh -i ~/.ssh/pwcli \
-    -o StrictHostKeyChecking=no \
-    -o UserKnownHostsFile=/dev/null \
-    -o "ProxyCommand=\${PW_REMOTE} ssh --proxy-command ${HEAD_RESOURCE_NAME}" \
-    -o ServerAliveInterval=15 \
-    -o ServerAliveCountMax=120 \
-    -N \
-    -L ${tunnel_ray_port}:localhost:${RAY_PORT} \
-    -L ${tunnel_dashboard_port}:localhost:${DASHBOARD_PORT} \
-    \${USER}@${HEAD_RESOURCE_NAME} </dev/null >\${TUNNEL_LOG} 2>&1 &
-PW_TUNNEL_PID=\$!
-echo \${PW_TUNNEL_PID} > "\${WORK}/.pw_tunnel.pid"
-sleep 5
-
-if ! kill -0 \${PW_TUNNEL_PID} 2>/dev/null; then
-    echo "[WARN] SSH tunnel exited. Log:"
-    cat \${TUNNEL_LOG} 2>/dev/null || true
-    echo "Falling back to pw ssh -L..."
-    \${PW_REMOTE} ssh -L ${tunnel_ray_port}:localhost:${RAY_PORT} \
-        -L ${tunnel_dashboard_port}:localhost:${DASHBOARD_PORT} \
-        ${HEAD_RESOURCE_NAME} "sleep 86400" </dev/null >\${TUNNEL_LOG} 2>&1 &
-    PW_TUNNEL_PID=\$!
-    echo \${PW_TUNNEL_PID} > "\${WORK}/.pw_tunnel.pid"
-    sleep 10
-fi
-echo "Tunnel PID \${PW_TUNNEL_PID} alive: \$(kill -0 \${PW_TUNNEL_PID} 2>/dev/null && echo yes || echo no)"
-
-# Verify tunnel to head works
-echo "Verifying tunnel to head node..."
-# Diagnostic: show tunnel log and check if port is bound
-echo "--- tunnel log ---"
-cat \${TUNNEL_LOG} 2>/dev/null || true
-echo "--- end tunnel log ---"
-ss -tlnp 2>/dev/null | grep ":${tunnel_ray_port} " || \
-    netstat -tlnp 2>/dev/null | grep ":${tunnel_ray_port}" || \
-    echo "  Port ${tunnel_ray_port} not yet in listen state"
+# Reverse tunnel is established via SSH -R on the main connection (workspace side).
+# Verify it works by connecting to localhost:tunnel_ray_port on this host.
+echo "Verifying reverse tunnel to head node (localhost:${tunnel_ray_port} -> head:${RAY_PORT})..."
 TUNNEL_OK=false
 for t_attempt in \$(seq 1 60); do
-    if ! kill -0 \${PW_TUNNEL_PID} 2>/dev/null; then
-        echo "[ERROR] pw ssh tunnel process died (PID \${PW_TUNNEL_PID})"
-        wait \${PW_TUNNEL_PID} 2>/dev/null
-        break
-    fi
     if python3 -c "
 import socket, sys
 s = socket.socket()
@@ -851,21 +799,18 @@ try:
 except:
     sys.exit(1)
 " 2>/dev/null; then
-        echo "Tunnel to head verified — Ray GCS reachable via 127.0.0.1:${tunnel_ray_port}"
+        echo "Reverse tunnel verified — Ray GCS reachable via 127.0.0.1:${tunnel_ray_port}"
         TUNNEL_OK=true
         break
     fi
-    [ \$((t_attempt % 10)) -eq 0 ] && echo "  Waiting for tunnel... (\${t_attempt}/60, \$((t_attempt * 2))s elapsed)"
+    [ \$((t_attempt % 10)) -eq 0 ] && echo "  Waiting for reverse tunnel... (\${t_attempt}/60, \$((t_attempt * 2))s elapsed)"
     sleep 2
 done
 
 if [ "\${TUNNEL_OK}" != "true" ]; then
-    echo "[ERROR] Cannot reach head node through tunnel on port ${tunnel_ray_port}"
-    echo "--- final tunnel log ---"
-    cat \${TUNNEL_LOG} 2>/dev/null || true
-    echo "--- end ---"
-    ss -tlnp 2>/dev/null | grep ":${tunnel_ray_port}" || echo "  Port ${tunnel_ray_port} still not listening"
-    kill \${PW_TUNNEL_PID} 2>/dev/null || true
+    echo "[ERROR] Cannot reach head node through SSH -R reverse tunnel on port ${tunnel_ray_port}"
+    echo "  This means the remote sshd may block reverse port forwarding (AllowTcpForwarding)."
+    ss -tlnp 2>/dev/null | grep ":${tunnel_ray_port}" || echo "  Port ${tunnel_ray_port} not listening"
     kill \${SRUN_PID} 2>/dev/null || true
     exit 1
 fi
@@ -973,66 +918,11 @@ done
 pkill -f "proxy.*\${WORK}" 2>/dev/null || true
 sleep 1
 
-# Create tunnel back to head node using pw ssh
-PW_REMOTE=""
-for try_cmd in pw ~/pw/pw; do
-    command -v \${try_cmd} &>/dev/null && { PW_REMOTE=\${try_cmd}; break; }
-    [ -x "\${try_cmd}" ] && { PW_REMOTE=\${try_cmd}; break; }
-done
-
-if [ -z "\${PW_REMOTE}" ]; then
-    echo "[ERROR] pw CLI not found on remote host — cannot create tunnel to head node"
-    exit 1
-fi
-
-echo "Creating tunnel to head node (${HEAD_RESOURCE_NAME})..."
-# Try real SSH with PW proxy-command for reliable -L port forwarding
-# (pw ssh -L may not forward TCP data through the PW proxy)
-TUNNEL_LOG="\${WORK}/.tunnel_ssh.log"
-ssh -i ~/.ssh/pwcli \
-    -o StrictHostKeyChecking=no \
-    -o UserKnownHostsFile=/dev/null \
-    -o "ProxyCommand=\${PW_REMOTE} ssh --proxy-command ${HEAD_RESOURCE_NAME}" \
-    -o ServerAliveInterval=15 \
-    -o ServerAliveCountMax=120 \
-    -N \
-    -L ${tunnel_ray_port}:localhost:${RAY_PORT} \
-    -L ${tunnel_dashboard_port}:localhost:${DASHBOARD_PORT} \
-    \${USER}@${HEAD_RESOURCE_NAME} </dev/null >\${TUNNEL_LOG} 2>&1 &
-PW_TUNNEL_PID=\$!
-echo \${PW_TUNNEL_PID} > "\${WORK}/.pw_tunnel.pid"
-sleep 5
-
-if ! kill -0 \${PW_TUNNEL_PID} 2>/dev/null; then
-    echo "[WARN] SSH tunnel exited. Log:"
-    cat \${TUNNEL_LOG} 2>/dev/null || true
-    echo "Falling back to pw ssh -L..."
-    \${PW_REMOTE} ssh -L ${tunnel_ray_port}:localhost:${RAY_PORT} \
-        -L ${tunnel_dashboard_port}:localhost:${DASHBOARD_PORT} \
-        ${HEAD_RESOURCE_NAME} "sleep 86400" </dev/null >\${TUNNEL_LOG} 2>&1 &
-    PW_TUNNEL_PID=\$!
-    echo \${PW_TUNNEL_PID} > "\${WORK}/.pw_tunnel.pid"
-    sleep 10
-fi
-echo "Tunnel PID \${PW_TUNNEL_PID} alive: \$(kill -0 \${PW_TUNNEL_PID} 2>/dev/null && echo yes || echo no)"
-
-# Verify tunnel to head works
-echo "Verifying tunnel to head node..."
-# Diagnostic: show tunnel log and check if port is bound
-echo "--- tunnel log ---"
-cat \${TUNNEL_LOG} 2>/dev/null || true
-echo "--- end tunnel log ---"
-ss -tlnp 2>/dev/null | grep ":${tunnel_ray_port} " || \
-    netstat -tlnp 2>/dev/null | grep ":${tunnel_ray_port}" || \
-    echo "  Port ${tunnel_ray_port} not yet in listen state"
+# Reverse tunnel is established via SSH -R on the main connection (workspace side).
+# Verify it works by connecting to localhost:tunnel_ray_port on this host.
+echo "Verifying reverse tunnel to head node (localhost:${tunnel_ray_port} -> head:${RAY_PORT})..."
 TUNNEL_OK=false
 for t_attempt in \$(seq 1 60); do
-    # Check if pw ssh process is still alive
-    if ! kill -0 \${PW_TUNNEL_PID} 2>/dev/null; then
-        echo "[ERROR] pw ssh tunnel process died (PID \${PW_TUNNEL_PID})"
-        wait \${PW_TUNNEL_PID} 2>/dev/null
-        break
-    fi
     if python3 -c "
 import socket, sys
 s = socket.socket()
@@ -1044,25 +934,22 @@ try:
 except:
     sys.exit(1)
 " 2>/dev/null; then
-        echo "Tunnel to head verified — Ray GCS reachable via 127.0.0.1:${tunnel_ray_port}"
+        echo "Reverse tunnel verified — Ray GCS reachable via 127.0.0.1:${tunnel_ray_port}"
         TUNNEL_OK=true
         break
     fi
-    [ \$((t_attempt % 10)) -eq 0 ] && echo "  Waiting for tunnel... (\${t_attempt}/60, \$((t_attempt * 2))s elapsed)"
+    [ \$((t_attempt % 10)) -eq 0 ] && echo "  Waiting for reverse tunnel... (\${t_attempt}/60, \$((t_attempt * 2))s elapsed)"
     sleep 2
 done
 
 if [ "\${TUNNEL_OK}" != "true" ]; then
-    echo "[ERROR] Cannot reach head node through tunnel on port ${tunnel_ray_port}"
-    echo "--- final tunnel log ---"
-    cat \${TUNNEL_LOG} 2>/dev/null || true
-    echo "--- end ---"
-    ss -tlnp 2>/dev/null | grep ":${tunnel_ray_port}" || echo "  Port ${tunnel_ray_port} still not listening"
-    kill \${PW_TUNNEL_PID} 2>/dev/null || true
+    echo "[ERROR] Cannot reach head node through SSH -R reverse tunnel on port ${tunnel_ray_port}"
+    echo "  This means the remote sshd may block reverse port forwarding (AllowTcpForwarding)."
+    ss -tlnp 2>/dev/null | grep ":${tunnel_ray_port}" || echo "  Port ${tunnel_ray_port} not listening"
     exit 1
 fi
 
-# Start TCP proxies (compute nodes connect here, forwarded through pw ssh tunnel)
+# Start TCP proxies (compute nodes connect here, forwarded through reverse tunnel)
 PROXY_RAY_PORT=\$(python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()")
 PROXY_DASH_PORT=\$(python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()")
 
@@ -1081,7 +968,6 @@ rm -f "\${WORK}/nodeinfo/"*
 ${node_configs}
 
 cleanup() {
-    kill \$(cat "\${WORK}/.pw_tunnel.pid" 2>/dev/null) 2>/dev/null || true
     kill \$(cat "\${WORK}/.proxy_ray_pid" 2>/dev/null) 2>/dev/null || true
     kill \$(cat "\${WORK}/.proxy_dash_pid" 2>/dev/null) 2>/dev/null || true
     for pf in "\${WORK}/.proxy_fwd_"*.pid; do
@@ -1381,66 +1267,11 @@ done
 pkill -f "proxy.*\${WORK}" 2>/dev/null || true
 sleep 1
 
-# Create tunnel back to head node using pw ssh
-PW_REMOTE=""
-for try_cmd in pw ~/pw/pw; do
-    command -v \${try_cmd} &>/dev/null && { PW_REMOTE=\${try_cmd}; break; }
-    [ -x "\${try_cmd}" ] && { PW_REMOTE=\${try_cmd}; break; }
-done
-
-if [ -z "\${PW_REMOTE}" ]; then
-    echo "[ERROR] pw CLI not found on remote host — cannot create tunnel to head node"
-    exit 1
-fi
-
-echo "Creating tunnel to head node (${HEAD_RESOURCE_NAME})..."
-# Try real SSH with PW proxy-command for reliable -L port forwarding
-# (pw ssh -L may not forward TCP data through the PW proxy)
-TUNNEL_LOG="\${WORK}/.tunnel_ssh.log"
-ssh -i ~/.ssh/pwcli \
-    -o StrictHostKeyChecking=no \
-    -o UserKnownHostsFile=/dev/null \
-    -o "ProxyCommand=\${PW_REMOTE} ssh --proxy-command ${HEAD_RESOURCE_NAME}" \
-    -o ServerAliveInterval=15 \
-    -o ServerAliveCountMax=120 \
-    -N \
-    -L ${tunnel_ray_port}:localhost:${RAY_PORT} \
-    -L ${tunnel_dashboard_port}:localhost:${DASHBOARD_PORT} \
-    \${USER}@${HEAD_RESOURCE_NAME} </dev/null >\${TUNNEL_LOG} 2>&1 &
-PW_TUNNEL_PID=\$!
-echo \${PW_TUNNEL_PID} > "\${WORK}/.pw_tunnel.pid"
-sleep 5
-
-if ! kill -0 \${PW_TUNNEL_PID} 2>/dev/null; then
-    echo "[WARN] SSH tunnel exited. Log:"
-    cat \${TUNNEL_LOG} 2>/dev/null || true
-    echo "Falling back to pw ssh -L..."
-    \${PW_REMOTE} ssh -L ${tunnel_ray_port}:localhost:${RAY_PORT} \
-        -L ${tunnel_dashboard_port}:localhost:${DASHBOARD_PORT} \
-        ${HEAD_RESOURCE_NAME} "sleep 86400" </dev/null >\${TUNNEL_LOG} 2>&1 &
-    PW_TUNNEL_PID=\$!
-    echo \${PW_TUNNEL_PID} > "\${WORK}/.pw_tunnel.pid"
-    sleep 10
-fi
-echo "Tunnel PID \${PW_TUNNEL_PID} alive: \$(kill -0 \${PW_TUNNEL_PID} 2>/dev/null && echo yes || echo no)"
-
-# Verify tunnel to head works
-echo "Verifying tunnel to head node..."
-# Diagnostic: show tunnel log and check if port is bound
-echo "--- tunnel log ---"
-cat \${TUNNEL_LOG} 2>/dev/null || true
-echo "--- end tunnel log ---"
-ss -tlnp 2>/dev/null | grep ":${tunnel_ray_port} " || \
-    netstat -tlnp 2>/dev/null | grep ":${tunnel_ray_port}" || \
-    echo "  Port ${tunnel_ray_port} not yet in listen state"
+# Reverse tunnel is established via SSH -R on the main connection (workspace side).
+# Verify it works by connecting to localhost:tunnel_ray_port on this host.
+echo "Verifying reverse tunnel to head node (localhost:${tunnel_ray_port} -> head:${RAY_PORT})..."
 TUNNEL_OK=false
 for t_attempt in \$(seq 1 60); do
-    # Check if pw ssh process is still alive
-    if ! kill -0 \${PW_TUNNEL_PID} 2>/dev/null; then
-        echo "[ERROR] pw ssh tunnel process died (PID \${PW_TUNNEL_PID})"
-        wait \${PW_TUNNEL_PID} 2>/dev/null
-        break
-    fi
     if python3 -c "
 import socket, sys
 s = socket.socket()
@@ -1452,21 +1283,18 @@ try:
 except:
     sys.exit(1)
 " 2>/dev/null; then
-        echo "Tunnel to head verified — Ray GCS reachable via 127.0.0.1:${tunnel_ray_port}"
+        echo "Reverse tunnel verified — Ray GCS reachable via 127.0.0.1:${tunnel_ray_port}"
         TUNNEL_OK=true
         break
     fi
-    [ \$((t_attempt % 10)) -eq 0 ] && echo "  Waiting for tunnel... (\${t_attempt}/60, \$((t_attempt * 2))s elapsed)"
+    [ \$((t_attempt % 10)) -eq 0 ] && echo "  Waiting for reverse tunnel... (\${t_attempt}/60, \$((t_attempt * 2))s elapsed)"
     sleep 2
 done
 
 if [ "\${TUNNEL_OK}" != "true" ]; then
-    echo "[ERROR] Cannot reach head node through tunnel on port ${tunnel_ray_port}"
-    echo "--- final tunnel log ---"
-    cat \${TUNNEL_LOG} 2>/dev/null || true
-    echo "--- end ---"
-    ss -tlnp 2>/dev/null | grep ":${tunnel_ray_port}" || echo "  Port ${tunnel_ray_port} still not listening"
-    kill \${PW_TUNNEL_PID} 2>/dev/null || true
+    echo "[ERROR] Cannot reach head node through SSH -R reverse tunnel on port ${tunnel_ray_port}"
+    echo "  This means the remote sshd may block reverse port forwarding (AllowTcpForwarding)."
+    ss -tlnp 2>/dev/null | grep ":${tunnel_ray_port}" || echo "  Port ${tunnel_ray_port} not listening"
     exit 1
 fi
 
@@ -1576,8 +1404,11 @@ WORKER_SCRIPT
     fi
 
     # Pipe script via stdin to avoid quoting issues with SSH command strings
+    echo "[${site_name}] Connecting via SSH (PW proxy)..."
     ssh "${SSH_ARGS[@]}" "${PW_USER}@${site_name}" 'bash -s' < "${script_file}" 2>&1 | \
         sed "s/^/[${site_name}] /"
+    local ssh_exit=$?
+    echo "[${site_name}] SSH session ended (exit code: ${ssh_exit})"
 }
 
 # Launch all worker sites in parallel
