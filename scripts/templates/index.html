@@ -409,31 +409,31 @@
 
   <!-- Cluster-only instructions view -->
   <div id="cluster-only-view" class="cluster-view view-hidden" style="padding: 2rem; overflow-y: auto;">
-    <div class="chart-card" style="max-width: 900px; margin: 0 auto; overflow: visible;">
+    <div style="max-width: 900px; margin: 0 auto; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 1.5rem 2rem;">
       <div class="card-title" style="font-size: 1.1rem; margin-bottom: 0.5rem;">Ray Cluster Ready</div>
       <p style="color: var(--dim); margin-bottom: 1.5rem;">
-        The multi-site Ray cluster is running with no demo workload. You can submit custom Ray jobs using the instructions below.
+        The multi-site Ray cluster is running. Connect from your local machine or run scripts directly on the head node.
       </p>
 
       <div style="margin-bottom: 1.5rem;">
         <div class="card-title" style="font-size: 0.95rem;">1. Connect via SSH Tunnel</div>
         <p style="color: var(--dim); font-size: 0.85rem; margin: 0.5rem 0;">
-          From your local machine, open an SSH tunnel to the Ray head node's GCS port (6379):
+          Forward the Ray ports to your local machine using the <code style="color: var(--accent);">pw</code> CLI:
         </p>
-        <pre id="ssh-tunnel-cmd" style="background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 1rem; font-size: 0.82rem; color: var(--accent); overflow-x: auto; white-space: pre-wrap; word-break: break-all; margin: 0.5rem 0;">ssh -L 6379:&lt;RAY_HEAD_IP&gt;:6379 -o ProxyCommand="pw ssh --proxy-command %h" $USER@&lt;head-resource&gt;</pre>
+        <pre id="ssh-tunnel-cmd" style="background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 1rem; font-size: 0.82rem; color: var(--accent); overflow-x: auto; white-space: pre-wrap; word-break: break-all; margin: 0.5rem 0;">pw ssh -L 6379:&lt;RAY_HEAD_IP&gt;:6379 -L 10001:&lt;RAY_HEAD_IP&gt;:10001 workspace</pre>
       </div>
 
       <div style="margin-bottom: 1.5rem;">
         <div class="card-title" style="font-size: 0.95rem;">2. Submit a Ray Job (Python)</div>
         <p style="color: var(--dim); font-size: 0.85rem; margin: 0.5rem 0;">
-          Connect to the cluster and submit tasks from a local Python script:
+          With the tunnel open, connect from a local Python script:
         </p>
         <pre style="background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 1rem; font-size: 0.82rem; color: var(--text); overflow-x: auto; white-space: pre-wrap;">import ray
 
-# Connect to the remote cluster via your SSH tunnel
+# Connect via your SSH tunnel
 ray.init(address="ray://127.0.0.1:10001")
 
-# Or connect directly if running on the head node:
+# Or connect directly on the head node:
 # ray.init(address="<span id="python-head-ip">&lt;RAY_HEAD_IP&gt;</span>:6379")
 
 @ray.remote
@@ -442,7 +442,6 @@ def my_task(x):
     time.sleep(1)
     return f"Result {x} from {socket.gethostname()}"
 
-# Submit tasks across the cluster
 futures = [my_task.remote(i) for i in range(10)]
 results = ray.get(futures)
 for r in results:
@@ -452,12 +451,12 @@ ray.shutdown()</pre>
       </div>
 
       <div style="margin-bottom: 1.5rem;">
-        <div class="card-title" style="font-size: 0.95rem;">3. Submit via Ray Job Submission API</div>
+        <div class="card-title" style="font-size: 0.95rem;">3. Submit via Ray Jobs CLI</div>
         <p style="color: var(--dim); font-size: 0.85rem; margin: 0.5rem 0;">
-          Use the Ray Jobs CLI to submit scripts to the cluster. First tunnel to the Ray dashboard port (8265):
+          Tunnel to the Ray dashboard, then use the Ray Jobs CLI:
         </p>
         <pre id="ray-jobs-cmd" style="background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 1rem; font-size: 0.82rem; color: var(--text); overflow-x: auto; white-space: pre-wrap;"># Tunnel to the Ray dashboard
-ssh -L 8265:&lt;RAY_HEAD_IP&gt;:8265 -o ProxyCommand="pw ssh --proxy-command %h" $USER@&lt;head-resource&gt;
+pw ssh -L 8265:&lt;RAY_HEAD_IP&gt;:8265 workspace
 
 # Submit a job
 ray job submit --address http://127.0.0.1:8265 -- python my_script.py
@@ -469,13 +468,13 @@ ray job list --address http://127.0.0.1:8265</pre>
       <div style="margin-bottom: 1.5rem;">
         <div class="card-title" style="font-size: 0.95rem;">4. Run Directly on the Head Node</div>
         <p style="color: var(--dim); font-size: 0.85rem; margin: 0.5rem 0;">
-          SSH to the head node and run scripts directly:
+          SSH into the workspace and run scripts with Ray pre-configured:
         </p>
-        <pre id="direct-cmd" style="background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 1rem; font-size: 0.82rem; color: var(--text); overflow-x: auto; white-space: pre-wrap;"># SSH to head node
-pw ssh &lt;head-resource&gt;
+        <pre id="direct-cmd" style="background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 1rem; font-size: 0.82rem; color: var(--text); overflow-x: auto; white-space: pre-wrap;"># SSH to the workspace
+pw ssh workspace
 
 # Activate the Ray environment
-source &lt;job_dir&gt;/.venv/bin/activate
+source ~/pw/jobs/*/ray-cluster-demo/.venv/bin/activate
 
 # Set the Ray address
 export RAY_ADDRESS="&lt;RAY_HEAD_IP&gt;:6379"
@@ -504,7 +503,7 @@ python my_script.py</pre>
               <td style="padding: 0.4rem 0; color: var(--dim);">Ray Dashboard</td>
               <td style="padding: 0.4rem 0; font-family: monospace;">8265</td>
             </tr>
-            <tr>
+            <tr style="border-bottom: 1px solid var(--border);">
               <td style="padding: 0.4rem 0; color: var(--dim);">Connected Workers</td>
               <td id="info-worker-count" style="padding: 0.4rem 0; font-family: monospace;">0</td>
             </tr>
@@ -729,7 +728,7 @@ function updateClusterOnlyInfo() {
   // Substitute real values into code blocks
   const sshCmd = document.getElementById('ssh-tunnel-cmd');
   if (sshCmd && headIp !== '-') {
-    sshCmd.textContent = `ssh -L 6379:${headIp}:6379 -L 10001:${headIp}:10001 -o ProxyCommand="pw ssh --proxy-command %h" $USER@${headResource}`;
+    sshCmd.textContent = `pw ssh -L 6379:${headIp}:6379 -L 10001:${headIp}:10001 workspace`;
   }
   const pythonIp = document.getElementById('python-head-ip');
   if (pythonIp && headIp !== '-') {
@@ -737,11 +736,11 @@ function updateClusterOnlyInfo() {
   }
   const rayJobsCmd = document.getElementById('ray-jobs-cmd');
   if (rayJobsCmd && headIp !== '-') {
-    rayJobsCmd.textContent = `# Tunnel to the Ray dashboard\nssh -L 8265:${headIp}:8265 -o ProxyCommand="pw ssh --proxy-command %h" $USER@${headResource}\n\n# Submit a job\nray job submit --address http://127.0.0.1:8265 -- python my_script.py\n\n# Check status\nray job list --address http://127.0.0.1:8265`;
+    rayJobsCmd.textContent = `# Tunnel to the Ray dashboard\npw ssh -L 8265:${headIp}:8265 workspace\n\n# Submit a job\nray job submit --address http://127.0.0.1:8265 -- python my_script.py\n\n# Check status\nray job list --address http://127.0.0.1:8265`;
   }
   const directCmd = document.getElementById('direct-cmd');
   if (directCmd && headIp !== '-') {
-    directCmd.textContent = `# SSH to head node\npw ssh ${headResource}\n\n# Activate the Ray environment\nsource ~/pw/jobs/*/ray-cluster-demo/.venv/bin/activate\n\n# Set the Ray address\nexport RAY_ADDRESS="${headIp}:6379"\n\n# Run your script\npython my_script.py`;
+    directCmd.textContent = `# SSH to the workspace\npw ssh workspace\n\n# Activate the Ray environment\nsource ~/pw/jobs/*/ray-cluster-demo/.venv/bin/activate\n\n# Set the Ray address\nexport RAY_ADDRESS="${headIp}:6379"\n\n# Run your script\npython my_script.py`;
   }
 }
 
