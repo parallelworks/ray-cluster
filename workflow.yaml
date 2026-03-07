@@ -52,17 +52,21 @@ jobs:
             while IFS= read -r jid; do
               [ -n "${jid}" ] && echo "  scancel ${jid}" && scancel "${jid}" 2>/dev/null || true
             done < "${JOB_DIR}/slurm_jobids"
+          else
+            echo "No local slurm_jobids file found (expected for remote workers)"
           fi
 
           # --- Cancel SLURM/PBS jobs on remote worker resources ---
-          WORKERS_JSON='${{ inputs.workers }}'
-          PW_USER="${PW_USER}"
+          export WORKERS_JSON='${{ inputs.workers }}'
+          export PW_USER="${PW_USER}"
           export PW_CMD=""
           for try_cmd in pw ~/pw/pw; do
             command -v ${try_cmd} &>/dev/null && { PW_CMD=${try_cmd}; break; }
             [ -x "${try_cmd}" ] && { PW_CMD=${try_cmd}; break; }
           done
           export PW_CMD
+          echo "Remote cleanup: WORKERS_JSON=${WORKERS_JSON}"
+          echo "Remote cleanup: PW_CMD=${PW_CMD} PW_USER=${PW_USER}"
 
           python3 -c "
           import json, os, subprocess
@@ -144,7 +148,8 @@ jobs:
                       ssh_base + ['ray stop --force 2>/dev/null || true'],
                       timeout=30, capture_output=False
                   )
-          " 2>&1 || echo "Remote cleanup had errors (non-fatal)"
+          " 2>&1
+          echo "Remote cleanup script exit code: $?"
 
           # --- Stop Ray head ---
           VENV_DIR="$(cat "${JOB_DIR}/RAY_VENV_DIR" 2>/dev/null || echo "")"
