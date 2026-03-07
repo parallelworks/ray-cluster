@@ -43,20 +43,101 @@ jobs:
           export RAY_VERSION="${{ inputs.ray_settings.ray_version }}"
           bash scripts/start_ray_head.sh
         cleanup: |
-          echo "Cleaning up Ray head node..."
+          echo "Cleaning up Ray head + workers..."
           JOB_DIR="${PW_PARENT_JOB_DIR%/}"
-          # Stop Ray
+
+          # --- Cancel local SLURM jobs (IDs saved by dispatch_workers.sh) ---
+          if [ -f "${JOB_DIR}/slurm_jobids" ]; then
+            echo "Cancelling local SLURM jobs..."
+            while IFS= read -r jid; do
+              [ -n "${jid}" ] && echo "  scancel ${jid}" && scancel "${jid}" 2>/dev/null || true
+            done < "${JOB_DIR}/slurm_jobids"
+          fi
+
+          # --- Cancel SLURM/PBS jobs on remote worker resources ---
+          WORKERS_JSON='${{ inputs.workers }}'
+          PW_USER="${PW_USER}"
+          export PW_CMD=""
+          for try_cmd in pw ~/pw/pw; do
+            command -v ${try_cmd} &>/dev/null && { PW_CMD=${try_cmd}; break; }
+            [ -x "${try_cmd}" ] && { PW_CMD=${try_cmd}; break; }
+          done
+          export PW_CMD
+
+          python3 -c "
+          import json, os, subprocess
+
+          workers = json.loads(os.environ.get('WORKERS_JSON', '[]'))
+          head_ip = os.environ.get('PW_RESOURCE_IP', '')
+          pw_user = os.environ.get('PW_USER', '')
+          pw_cmd = os.environ.get('PW_CMD', 'pw')
+          seen = set()
+          for w in workers:
+              ip = w.get('resource', {}).get('ip', '')
+              name = w.get('resource', {}).get('name', ip)
+              if not ip or ip in seen or ip == head_ip:
+                  continue
+              seen.add(ip)
+              sched = w.get('resource', {}).get('schedulerType', '')
+
+              print(f'Cleaning up {name} ({ip}, scheduler={sched})...')
+
+              ssh_base = [
+                  'ssh', '-i', os.path.expanduser('~/.ssh/pwcli'),
+                  '-o', 'StrictHostKeyChecking=no',
+                  '-o', 'UserKnownHostsFile=/dev/null',
+                  '-o', 'ConnectTimeout=15',
+                  '-o', f'ProxyCommand={pw_cmd} ssh --proxy-command %h',
+                  f'{pw_user}@{name}',
+              ]
+
+              if sched == 'slurm':
+                  subprocess.run(
+                      ssh_base + [
+                          'WORK=\${HOME}/pw/jobs/ray_worker_remote; '
+                          'if [ -f \"\${WORK}/slurm_jobid\" ]; then '
+                          '  jid=\$(cat \"\${WORK}/slurm_jobid\"); '
+                          '  echo \"Cancelling SLURM job \${jid}\"; '
+                          '  scancel \"\${jid}\" 2>/dev/null; '
+                          'fi; '
+                          'scancel --name=\"ray-worker-*\" 2>/dev/null; '
+                          'ray stop --force 2>/dev/null; '
+                          'echo \"SLURM cleanup done\"'],
+                      timeout=30, capture_output=False
+                  )
+              elif sched == 'pbs':
+                  subprocess.run(
+                      ssh_base + [
+                          'WORK=\${HOME}/pw/jobs/ray_worker_remote; '
+                          'if [ -f \"\${WORK}/pbs_jobid\" ]; then '
+                          '  jid=\$(cat \"\${WORK}/pbs_jobid\"); '
+                          '  echo \"Cancelling PBS job \${jid}\"; '
+                          '  qdel \"\${jid}\" 2>/dev/null; '
+                          'fi; '
+                          'ray stop --force 2>/dev/null; '
+                          'echo \"PBS cleanup done\"'],
+                      timeout=30, capture_output=False
+                  )
+              else:
+                  subprocess.run(
+                      ssh_base + ['ray stop --force 2>/dev/null || true'],
+                      timeout=30, capture_output=False
+                  )
+          " 2>&1 || echo "Remote cleanup had errors (non-fatal)"
+
+          # --- Stop Ray head ---
           VENV_DIR="$(cat "${JOB_DIR}/RAY_VENV_DIR" 2>/dev/null || echo "")"
           if [ -n "${VENV_DIR}" ] && [ -x "${VENV_DIR}/bin/ray" ]; then
             "${VENV_DIR}/bin/ray" stop --force 2>/dev/null || true
           elif command -v ray &>/dev/null; then
             ray stop --force 2>/dev/null || true
           fi
-          # Kill dashboard
+
+          # --- Kill dashboard ---
           if [ -f "${JOB_DIR}/dashboard.pid" ]; then
             kill "$(cat "${JOB_DIR}/dashboard.pid")" 2>/dev/null || true
           fi
-          echo "Ray head cleanup done."
+          echo "Ray head + worker cleanup done."
 
   # =============================================================================
   # WAIT FOR RAY — Poll for coordination files (Ray head + dashboard)
@@ -165,94 +246,11 @@ jobs:
 
           bash scripts/dispatch_workers.sh
         cleanup: |
-          echo "Cleaning up worker sites..."
-          JOB_DIR="${PW_PARENT_JOB_DIR%/}"
-
-          # Cancel local SLURM jobs (IDs saved by dispatch_workers.sh)
-          if [ -f "${JOB_DIR}/slurm_jobids" ]; then
-            echo "Cancelling local SLURM jobs..."
-            while IFS= read -r jid; do
-              [ -n "${jid}" ] && echo "  scancel ${jid}" && scancel "${jid}" 2>/dev/null || true
-            done < "${JOB_DIR}/slurm_jobids"
-          fi
-
-          # NOTE: Do NOT run "ray stop" here — this runs on the head node
-          # and would kill the Ray coordinator. Ray head cleanup is handled
-          # by the start_ray_head cleanup block.
-
-          # Cancel SLURM/PBS jobs on remote worker resources.
-          # The remote script saves the job ID to ~/pw/jobs/ray_worker_remote/slurm_jobid.
-          # SSH uses pw proxy to reach remote resources (same as dispatch).
-          WORKERS_JSON='${{ inputs.workers }}'
-          PW_USER="${PW_USER}"
-          export PW_CMD=""
-          for try_cmd in pw ~/pw/pw; do
-            command -v ${try_cmd} &>/dev/null && { PW_CMD=${try_cmd}; break; }
-            [ -x "${try_cmd}" ] && { PW_CMD=${try_cmd}; break; }
-          done
-          export PW_CMD
-
-          python3 -c "
-          import json, os, subprocess, shlex
-
-          workers = json.loads(os.environ.get('WORKERS_JSON', '[]'))
-          head_ip = os.environ.get('PW_RESOURCE_IP', '')
-          pw_user = os.environ.get('PW_USER', '')
-          pw_cmd = os.environ.get('PW_CMD', 'pw')
-          seen = set()
-          for w in workers:
-              ip = w.get('resource', {}).get('ip', '')
-              name = w.get('resource', {}).get('name', ip)
-              if not ip or ip in seen or ip == head_ip:
-                  continue
-              seen.add(ip)
-              sched = w.get('resource', {}).get('schedulerType', '')
-
-              print(f'Cleaning up {name} ({ip}, scheduler={sched})...')
-
-              ssh_base = [
-                  'ssh', '-i', os.path.expanduser('~/.ssh/pwcli'),
-                  '-o', 'StrictHostKeyChecking=no',
-                  '-o', 'UserKnownHostsFile=/dev/null',
-                  '-o', 'ConnectTimeout=15',
-                  '-o', f'ProxyCommand={pw_cmd} ssh --proxy-command %h',
-                  f'{pw_user}@{name}',
-              ]
-
-              if sched == 'slurm':
-                  subprocess.run(
-                      ssh_base + [
-                          'WORK=\${HOME}/pw/jobs/ray_worker_remote; '
-                          'if [ -f \"\${WORK}/slurm_jobid\" ]; then '
-                          '  jid=\$(cat \"\${WORK}/slurm_jobid\"); '
-                          '  echo \"Cancelling SLURM job \${jid}\"; '
-                          '  scancel \"\${jid}\" 2>/dev/null; '
-                          'fi; '
-                          'scancel --name=\"ray-worker-*\" 2>/dev/null; '
-                          'ray stop --force 2>/dev/null; '
-                          'echo \"SLURM cleanup done\"'],
-                      timeout=30, capture_output=False
-                  )
-              elif sched == 'pbs':
-                  subprocess.run(
-                      ssh_base + [
-                          'WORK=\${HOME}/pw/jobs/ray_worker_remote; '
-                          'if [ -f \"\${WORK}/pbs_jobid\" ]; then '
-                          '  jid=\$(cat \"\${WORK}/pbs_jobid\"); '
-                          '  echo \"Cancelling PBS job \${jid}\"; '
-                          '  qdel \"\${jid}\" 2>/dev/null; '
-                          'fi; '
-                          'ray stop --force 2>/dev/null; '
-                          'echo \"PBS cleanup done\"'],
-                      timeout=30, capture_output=False
-                  )
-              else:
-                  subprocess.run(
-                      ssh_base + ['ray stop --force 2>/dev/null || true'],
-                      timeout=30, capture_output=False
-                  )
-          " 2>&1 || echo "Remote cleanup had errors (non-fatal)"
-          echo "Worker cleanup done."
+          # NOTE: Worker cleanup (scancel, remote SSH) is handled by
+          # start_ray_head cleanup, NOT here. This step's SSH may drop
+          # on intermittent connection issues — we must not kill workers
+          # just because dispatch_workers reconnected or exited.
+          echo "dispatch_workers cleanup done (worker teardown deferred to start_ray_head)."
 
   # =============================================================================
   # BENCHMARK — Run distributed benchmark across all sites (skipped in cluster_only mode)
