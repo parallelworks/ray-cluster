@@ -64,7 +64,9 @@ def _reset_state():
     state["grid_size"] = 0
     state["image_size"] = 0
     state["fractal_tiles"] = {}
-    state["pending_sites"] = {}
+    # Preserve pending_sites across config resets — they are set by dispatch
+    # before the benchmark script sends /api/config
+    # state["pending_sites"] is NOT reset here
 
 
 def _compute_throughput_history():
