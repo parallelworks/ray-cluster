@@ -248,9 +248,9 @@ jobs:
           ${{ inputs.workload_settings.user_script }}
           USERSCRIPT_EOF
 
-            # If no shebang, prepend #!/usr/bin/env python3
+            # If no shebang, prepend #!/bin/bash
             if ! head -1 "${SCRIPT_FILE}" | grep -q '^#!'; then
-              sed -i '1i#!/usr/bin/env python3' "${SCRIPT_FILE}"
+              sed -i '1i#!/bin/bash' "${SCRIPT_FILE}"
             fi
             chmod +x "${SCRIPT_FILE}"
 
@@ -523,7 +523,8 @@ jobs:
           user_script:
             type: editor
             label: User Script
-            tooltip: "Script to run on the head node after the cluster is ready. Ray is pre-configured — just import ray and connect. Defaults to Python; add a shebang (e.g. #!/bin/bash) for other languages."
+            default: "#!/bin/bash\n"
+            tooltip: "Script to run on the head node after the cluster is ready. The Ray venv is activated and RAY_ADDRESS is set. Change the shebang to #!/usr/bin/env python3 for Python scripts."
             optional: true
             hidden: ${{ inputs.workload_settings.workload_type != 'cluster_only' || inputs.workload_settings.run_user_script == false }}
             ignore: ${{ inputs.workload_settings.workload_type != 'cluster_only' || inputs.workload_settings.run_user_script == false }}
