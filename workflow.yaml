@@ -166,46 +166,45 @@ jobs:
           bash scripts/dispatch_workers.sh
         cleanup: |
           echo "Cleaning up worker sites..."
-          WORKERS_JSON='${{ inputs.workers }}'
+          JOB_DIR="${PW_PARENT_JOB_DIR%/}"
 
-          # Parse worker resource IPs and cancel SLURM/PBS jobs on each
+          # Cancel local SLURM jobs (IDs saved by dispatch_workers.sh)
+          if [ -f "${JOB_DIR}/slurm_jobids" ]; then
+            echo "Cancelling local SLURM jobs..."
+            while IFS= read -r jid; do
+              [ -n "${jid}" ] && echo "  scancel ${jid}" && scancel "${jid}" 2>/dev/null || true
+            done < "${JOB_DIR}/slurm_jobids"
+          fi
+
+          # Stop Ray on local workers
+          VENV_DIR="$(cat "${JOB_DIR}/RAY_VENV_DIR" 2>/dev/null || echo "")"
+          if [ -n "${VENV_DIR}" ] && [ -x "${VENV_DIR}/bin/ray" ]; then
+            "${VENV_DIR}/bin/ray" stop --force 2>/dev/null || true
+          fi
+
+          # Remote workers: SSH session cleanup triggers their trap handler
+          # which cancels their specific SLURM job via ${WORK}/slurm_jobid.
+          # As a fallback, also try to stop Ray on remote resources.
+          WORKERS_JSON='${{ inputs.workers }}'
           python3 -c "
           import json, os, subprocess
 
           workers = json.loads(os.environ.get('WORKERS_JSON', '[]'))
+          head_ip = os.environ.get('PW_RESOURCE_IP', '')
           seen = set()
           for w in workers:
               ip = w.get('resource', {}).get('ip', '')
-              if not ip or ip in seen:
+              if not ip or ip in seen or ip == head_ip:
                   continue
               seen.add(ip)
               name = w.get('resource', {}).get('name', ip)
-              sched = w.get('resource', {}).get('schedulerType', '')
-
-              print(f'Cleaning up {name} ({ip}, scheduler={sched})...')
-
-              # Cancel SLURM jobs
-              if sched == 'slurm':
-                  subprocess.run(
-                      ['ssh', '-o', 'StrictHostKeyChecking=no', ip,
-                       'scancel -u \$(whoami) 2>/dev/null; echo SLURM jobs cancelled'],
-                      timeout=30, capture_output=False
-                  )
-              # Cancel PBS jobs
-              elif sched == 'pbs':
-                  subprocess.run(
-                      ['ssh', '-o', 'StrictHostKeyChecking=no', ip,
-                       'for jid in \$(qstat -u \$(whoami) 2>/dev/null | awk \"NR>5 {print \\\$1}\"); do qdel \$jid 2>/dev/null; done; echo PBS jobs cancelled'],
-                      timeout=30, capture_output=False
-                  )
-
-              # Stop Ray on the worker resource
+              print(f'Stopping Ray on {name} ({ip})...')
               subprocess.run(
-                  ['ssh', '-o', 'StrictHostKeyChecking=no', ip,
+                  ['ssh', '-o', 'StrictHostKeyChecking=no', '-o', 'ConnectTimeout=10', ip,
                    'ray stop --force 2>/dev/null || true'],
                   timeout=30, capture_output=False
               )
-          " 2>&1 || echo "Worker cleanup had errors (non-fatal)"
+          " 2>&1 || echo "Remote cleanup had errors (non-fatal)"
           echo "Worker cleanup done."
 
   # =============================================================================

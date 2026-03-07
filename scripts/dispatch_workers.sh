@@ -307,22 +307,24 @@ PBS_SCRIPT
         qsub "${script_file}" 2>&1 | sed -u "s/^/[${site_name}] /" &
 
     else
-        # SLURM dispatch (original behavior)
+        # SLURM dispatch via sbatch (captures job ID for cleanup)
         echo "[${site_name}] Dispatching ${slurm_nodes} local SLURM worker(s) on ${site_name}"
 
-        # Build srun command
-        local srun_cmd="srun --nodes=${slurm_nodes} --ntasks=${slurm_nodes}"
-        [ -n "${slurm_partition}" ] && srun_cmd="${srun_cmd} --partition=${slurm_partition}"
-        [ -n "${slurm_account}" ] && srun_cmd="${srun_cmd} --account=${slurm_account}"
-        [ -n "${slurm_qos}" ] && srun_cmd="${srun_cmd} --qos=${slurm_qos}"
-        [ -n "${slurm_time}" ] && srun_cmd="${srun_cmd} --time=${slurm_time}"
-
-        echo "[${site_name}] ${srun_cmd}"
-
-        # Write worker script to shared filesystem (JOB_DIR, not WORK_DIR which is /tmp and node-local)
+        # Write worker script with sbatch directives to shared filesystem
         local script_file="${JOB_DIR}/worker_local_${site_index}.sh"
+        local log_file="${JOB_DIR}/logs/worker_local_${site_index}.out"
+        mkdir -p "${JOB_DIR}/logs"
         cat > "${script_file}" <<WORKER_SCRIPT
 #!/bin/bash
+#SBATCH --nodes=${slurm_nodes}
+#SBATCH --ntasks=${slurm_nodes}
+#SBATCH --output=${log_file}
+#SBATCH --error=${log_file}
+#SBATCH --job-name=ray-worker-${site_name}
+$([ -n "${slurm_partition}" ] && echo "#SBATCH --partition=${slurm_partition}")
+$([ -n "${slurm_account}" ] && echo "#SBATCH --account=${slurm_account}")
+$([ -n "${slurm_qos}" ] && echo "#SBATCH --qos=${slurm_qos}")
+$([ -n "${slurm_time}" ] && echo "#SBATCH --time=${slurm_time}")
 set -e
 
 HEAD_IP="${RAY_HEAD_IP}"
@@ -357,7 +359,6 @@ elif [ -z "\${SLURM_JOB_ID:-}" ] && command -v nvidia-smi &>/dev/null; then
 fi
 
 echo "Starting Ray worker on \$(hostname) (\${WORKER_IP}), connecting to \${HEAD_IP}:6379..."
-# Register 1 task slot per node. Tasks use internal parallelism (OpenMP, MPI, etc.)
 RAY_GPU_ARGS=""
 if [ "\${NUM_GPUS}" -gt 0 ]; then
     RAY_GPU_ARGS="--num-gpus=\${NUM_GPUS}"
@@ -409,7 +410,30 @@ while true; do
 done
 WORKER_SCRIPT
 
-        ${srun_cmd} bash "${script_file}" 2>&1 | sed -u "s/^/[${site_name}] /" &
+        # Submit via sbatch and capture job ID
+        local sbatch_output
+        sbatch_output=$(sbatch "${script_file}" 2>&1)
+        echo "[${site_name}] ${sbatch_output}"
+        local slurm_jobid
+        slurm_jobid=$(echo "${sbatch_output}" | grep -oP 'Submitted batch job \K[0-9]+')
+        if [ -n "${slurm_jobid}" ]; then
+            echo "${slurm_jobid}" >> "${JOB_DIR}/slurm_jobids"
+            echo "[${site_name}] SLURM job ID: ${slurm_jobid} (saved to ${JOB_DIR}/slurm_jobids)"
+        else
+            echo "[${site_name}] WARNING: Could not parse SLURM job ID from: ${sbatch_output}"
+        fi
+
+        # Stream the SLURM output log in the background
+        (
+            # Wait for log file to appear
+            for i in $(seq 1 120); do
+                [ -f "${log_file}" ] && break
+                sleep 2
+            done
+            if [ -f "${log_file}" ]; then
+                tail -f "${log_file}" 2>/dev/null | sed -u "s/^/[${site_name}] /"
+            fi
+        ) &
     fi
 }
 
@@ -538,13 +562,16 @@ dispatch_worker() {
     local script_file="${WORK_DIR}/worker_${site_id}.sh"
 
     if [ "${dispatch_mode}" = "slurm" ]; then
-        # Build srun command
-        local srun_cmd="srun"
-        [ -n "${slurm_partition}" ] && srun_cmd="${srun_cmd} --partition=${slurm_partition}"
-        [ -n "${slurm_account}" ] && srun_cmd="${srun_cmd} --account=${slurm_account}"
-        [ -n "${slurm_qos}" ] && srun_cmd="${srun_cmd} --qos=${slurm_qos}"
-        [ -n "${slurm_time}" ] && srun_cmd="${srun_cmd} --time=${slurm_time}"
-        srun_cmd="${srun_cmd} --nodes=${num_nodes} --ntasks=${num_nodes}"
+        # Build SLURM sbatch directives
+        local sbatch_directives=""
+        [ -n "${slurm_partition}" ] && sbatch_directives="${sbatch_directives}
+#SBATCH --partition=${slurm_partition}"
+        [ -n "${slurm_account}" ] && sbatch_directives="${sbatch_directives}
+#SBATCH --account=${slurm_account}"
+        [ -n "${slurm_qos}" ] && sbatch_directives="${sbatch_directives}
+#SBATCH --qos=${slurm_qos}"
+        [ -n "${slurm_time}" ] && sbatch_directives="${sbatch_directives}
+#SBATCH --time=${slurm_time}"
 
         # Generate per-node config files content
         local node_configs=""
@@ -598,7 +625,7 @@ done
 pkill -f "proxy.*\${WORK}" 2>/dev/null || true
 sleep 1
 
-# Allocate proxy ports early (srun tasks need PROXY_RAY_PORT)
+# Allocate proxy ports early (worker tasks need PROXY_RAY_PORT)
 PROXY_RAY_PORT=\$(python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()")
 PROXY_DASH_PORT=\$(python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()")
 
@@ -613,24 +640,18 @@ cleanup() {
     for pf in "\${WORK}/.proxy_fwd_"*.pid; do
         [ -f "\${pf}" ] && kill \$(cat "\${pf}" 2>/dev/null) 2>/dev/null || true
     done
+    # Cancel the SLURM job
+    if [ -f "\${WORK}/slurm_jobid" ]; then
+        local jid=\$(cat "\${WORK}/slurm_jobid" 2>/dev/null)
+        if [ -n "\${jid}" ]; then
+            echo "Cancelling SLURM job \${jid}..."
+            scancel "\${jid}" 2>/dev/null || true
+        fi
+    fi
 }
 trap cleanup EXIT
 
-# Submit SLURM job immediately (srun task waits for proxies_ready before proceeding)
-echo "Submitting to SLURM: ${srun_cmd}"
-
-# Export variables for srun tasks
-export WORK_DIR="\${WORK}"
-export LOGIN_HOST
-export PROXY_RAY_PORT
-export PROXY_DASH_PORT
-export EXPECTED_CLUSTER_NAME="${site_name}"
-export EXPECTED_SITE_ID="${site_id}"
-export OMP_NUM_THREADS=1
-export MKL_NUM_THREADS=1
-export OPENBLAS_NUM_THREADS=1
-
-# Write srun task script to file (avoids quoting issues with bash -c)
+# Write per-node task script (runs on each compute node via srun inside sbatch)
 cat > "\${WORK}/srun_task.sh" <<'SRUN_TASK_EOF'
 #!/bin/bash
 set -e
@@ -781,8 +802,53 @@ done
 SRUN_TASK_EOF
 chmod +x "\${WORK}/srun_task.sh"
 
-${srun_cmd} bash "\${WORK}/srun_task.sh" &
-SRUN_PID=\$!
+# Save state for sbatch wrapper to pick up
+echo "\${LOGIN_HOST}" > "\${WORK}/login_host"
+echo "\${PROXY_RAY_PORT}" > "\${WORK}/proxy_ray_port"
+echo "\${PROXY_DASH_PORT}" > "\${WORK}/proxy_dash_port"
+
+# Write sbatch wrapper script that launches srun internally
+cat > "\${WORK}/sbatch_wrapper.sh" <<SBATCH_WRAP_EOF
+#!/bin/bash
+#SBATCH --nodes=${num_nodes}
+#SBATCH --ntasks=${num_nodes}
+#SBATCH --job-name=ray-worker-${site_id}
+${sbatch_directives}
+
+WORK="\${WORK}"
+export WORK_DIR="\${WORK}"
+export LOGIN_HOST=\\\$(cat "\${WORK}/login_host")
+export PROXY_RAY_PORT=\\\$(cat "\${WORK}/proxy_ray_port")
+export PROXY_DASH_PORT=\\\$(cat "\${WORK}/proxy_dash_port")
+export EXPECTED_CLUSTER_NAME="${site_name}"
+export EXPECTED_SITE_ID="${site_id}"
+
+srun --ntasks=${num_nodes} bash "\${WORK}/srun_task.sh"
+SBATCH_WRAP_EOF
+chmod +x "\${WORK}/sbatch_wrapper.sh"
+
+# Submit via sbatch and capture job ID
+SBATCH_OUTPUT=\$(sbatch --output="\${WORK}/slurm_worker.out" --error="\${WORK}/slurm_worker.out" "\${WORK}/sbatch_wrapper.sh" 2>&1)
+echo "sbatch: \${SBATCH_OUTPUT}"
+SLURM_JOBID=\$(echo "\${SBATCH_OUTPUT}" | grep -oP 'Submitted batch job \K[0-9]+')
+if [ -n "\${SLURM_JOBID}" ]; then
+    echo "\${SLURM_JOBID}" > "\${WORK}/slurm_jobid"
+    echo "SLURM job ID: \${SLURM_JOBID} (saved to \${WORK}/slurm_jobid)"
+else
+    echo "[ERROR] Could not parse SLURM job ID from: \${SBATCH_OUTPUT}"
+    exit 1
+fi
+
+# Stream sbatch output log in the background
+(
+    for i in \$(seq 1 120); do
+        [ -f "\${WORK}/slurm_worker.out" ] && break
+        sleep 2
+    done
+    if [ -f "\${WORK}/slurm_worker.out" ]; then
+        tail -f "\${WORK}/slurm_worker.out" 2>/dev/null &
+    fi
+) &
 
 # Wait for all nodes to report hostnames
 echo "Waiting for \${NUM_NODES} compute node(s) to start..."
@@ -800,7 +866,6 @@ while true; do
     fi
     if [ \${attempt} -gt 300 ]; then
         echo "[ERROR] Timeout waiting for compute nodes after 10min (got \${count}/\${NUM_NODES})"
-        kill \${SRUN_PID} 2>/dev/null || true
         exit 1
     fi
 done
@@ -847,7 +912,6 @@ if [ "\${TUNNEL_OK}" != "true" ]; then
     echo "[ERROR] Cannot reach head node through SSH -R reverse tunnel on port ${tunnel_ray_port}"
     echo "  Last result: \${RESULT}"
     ss -tlnp 2>/dev/null | grep ":${tunnel_ray_port}" || echo "  Port ${tunnel_ray_port} not listening"
-    kill \${SRUN_PID} 2>/dev/null || true
     exit 1
 fi
 
@@ -890,7 +954,16 @@ sleep 1
 touch "\${WORK}/nodeinfo/proxies_ready"
 echo "Forward proxies ready!"
 
-wait \${SRUN_PID}
+# Wait for SLURM job to finish (poll squeue)
+echo "Waiting for SLURM job \${SLURM_JOBID} to complete..."
+while true; do
+    JOB_STATE=\$(squeue -j "\${SLURM_JOBID}" -h -o "%T" 2>/dev/null || echo "")
+    if [ -z "\${JOB_STATE}" ]; then
+        echo "SLURM job \${SLURM_JOBID} completed."
+        break
+    fi
+    sleep 10
+done
 WORKER_SCRIPT
 
     elif [ "${dispatch_mode}" = "pbs" ]; then
