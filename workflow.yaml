@@ -341,12 +341,12 @@ jobs:
 
           scheduler:
             type: boolean
-            default: false
+            default: true
             label: Schedule Job?
             hidden: ${{ inputs.workers.[index].resource.schedulerType != 'slurm' && inputs.workers.[index].resource.schedulerType != 'pbs' }}
             ignore: ${{ .hidden }}
             tooltip: |
-              Yes - Workers are submitted to the scheduler using sbatch, qsub, etc.
+              Yes - Workers are submitted to the scheduler using sbatch, qsub, etc. (recommended)
               No  - Workers run directly on the login/controller node via SSH.
 
           slurm:
