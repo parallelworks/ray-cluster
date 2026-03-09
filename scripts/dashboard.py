@@ -427,9 +427,24 @@ async def _poll_ray_api():
                     }
                     # Update task placement counts using real Ray task counts
                     # instead of job-level counts
-                    if state["phase"] in ("user_script", "complete"):
-                        state["total_planned"] = max(state["total_planned"], hwm_total)
-                        state["total_completed"] = max(state["total_completed"], hwm_finished)
+                    state["total_planned"] = max(state["total_planned"], hwm_total)
+                    state["total_completed"] = max(state["total_completed"], hwm_finished)
+
+                    # Distribute task counts to site_stats proportionally by worker count
+                    site_ids = [sid for sid in state["site_stats"]]
+                    if site_ids:
+                        total_workers = sum(
+                            len(state["site_stats"][sid].get("node_ips", [])) or 1
+                            for sid in site_ids
+                        )
+                        for sid in site_ids:
+                            workers = len(state["site_stats"][sid].get("node_ips", [])) or 1
+                            proportion = workers / total_workers
+                            distributed = round(hwm_finished * proportion)
+                            state["site_stats"][sid]["task_count"] = max(
+                                state["site_stats"][sid].get("task_count", 0),
+                                distributed,
+                            )
                     changed = True
 
             logged_first = True

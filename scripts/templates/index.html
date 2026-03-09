@@ -698,9 +698,14 @@ function mergeSiteStats(incoming) {
   for (const [siteId, data] of Object.entries(incoming || {})) {
     if (!siteStats[siteId]) { siteStats[siteId] = data; }
     else {
-      const prev = siteStats[siteId].cluster_name;
+      const prevName = siteStats[siteId].cluster_name;
+      const prevTaskCount = siteStats[siteId].task_count || 0;
+      const prevTotalMs = siteStats[siteId].total_ms || 0;
       Object.assign(siteStats[siteId], data);
-      if (!data.cluster_name && prev) siteStats[siteId].cluster_name = prev;
+      if (!data.cluster_name && prevName) siteStats[siteId].cluster_name = prevName;
+      // High-water mark: never let task_count or total_ms decrease
+      siteStats[siteId].task_count = Math.max(prevTaskCount, siteStats[siteId].task_count || 0);
+      siteStats[siteId].total_ms = Math.max(prevTotalMs, siteStats[siteId].total_ms || 0);
     }
   }
 }
@@ -1569,8 +1574,8 @@ function connect() {
 
       if (totalCompleted > 0) {
         fetch(basePath + '/api/state').then(r => r.json()).then(data => {
-          totalCompleted = data.total_completed;
-          totalPlanned = data.total_planned;
+          totalCompleted = Math.max(totalCompleted, data.total_completed || 0);
+          totalPlanned = Math.max(totalPlanned, data.total_planned || 0);
           phase = data.phase;
           mergeSiteStats(data.site_stats);
           Object.assign(rayNodes, data.nodes || {});
@@ -1641,8 +1646,9 @@ function connect() {
     } else if (msg.type === 'worker') {
       Object.assign(rayNodes, msg.nodes || {});
       mergeSiteStats(msg.site_stats);
-      if (msg.total_completed !== undefined) totalCompleted = msg.total_completed;
-      if (msg.total_planned !== undefined) totalPlanned = msg.total_planned;
+      // Use max() so ray_task_counts high-water marks are never overwritten
+      if (msg.total_completed !== undefined) totalCompleted = Math.max(totalCompleted, msg.total_completed);
+      if (msg.total_planned !== undefined) totalPlanned = Math.max(totalPlanned, msg.total_planned);
       if (msg.phase) phase = msg.phase;
       // Remove from pending — site is now connected
       if (msg.site_id) delete pendingSites[msg.site_id];
@@ -1683,16 +1689,16 @@ function connect() {
       updateStats();
     } else if (msg.type === 'task') {
       if (!startTime) startTime = Date.now() / 1000;
-      totalCompleted = msg.total_completed;
-      totalPlanned = msg.total_planned;
+      totalCompleted = Math.max(totalCompleted, msg.total_completed || 0);
+      totalPlanned = Math.max(totalPlanned, msg.total_planned || 0);
       phase = msg.phase;
       mergeSiteStats(msg.site_stats);
       updateStats();
     } else if (msg.type === 'tile') {
       if (!startTime) startTime = Date.now() / 1000;
       const wasFirst = totalCompleted === 0;
-      totalCompleted = msg.completed;
-      totalPlanned = msg.total;
+      totalCompleted = Math.max(totalCompleted, msg.completed || 0);
+      totalPlanned = Math.max(totalPlanned, msg.total || 0);
       mergeSiteStats(msg.site_stats);
       drawTileToOffscreen(msg.tile_x, msg.tile_y, msg.png_b64, msg.site_id);
       if (wasFirst && activeTab === 'cluster') switchTab('fractal');
