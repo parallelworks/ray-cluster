@@ -311,7 +311,17 @@ wait
 PBS_SCRIPT
 
         echo "[${site_name}] Submitting PBS job: qsub ${script_file}"
-        qsub "${script_file}" 2>&1 | sed -u "s/^/[${site_name}] /" &
+        local qsub_output
+        qsub_output=$(qsub "${script_file}" 2>&1)
+        echo "[${site_name}] ${qsub_output}"
+        if ! echo "${qsub_output}" | grep -qP '^\d+'; then
+            echo "[${site_name}] ERROR: qsub failed: ${qsub_output}"
+            curl -s --connect-timeout 3 -X POST "http://localhost:${DASHBOARD_PORT}/api/worker/error" \
+                -H "Content-Type: application/json" \
+                -d "{\"site_id\": \"site-1\", \"error\": $(echo "${qsub_output}" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read().strip()))')}" \
+                2>/dev/null || true
+            return 1
+        fi
 
     else
         # SLURM dispatch via sbatch (captures job ID for cleanup)
@@ -429,7 +439,13 @@ WORKER_SCRIPT
             echo "${slurm_jobid}" >> "${JOB_DIR}/slurm_jobids"
             echo "[${site_name}] SLURM job ID: ${slurm_jobid} (saved to ${JOB_DIR}/slurm_jobids)"
         else
-            echo "[${site_name}] WARNING: Could not parse SLURM job ID from: ${sbatch_output}"
+            echo "[${site_name}] ERROR: sbatch failed: ${sbatch_output}"
+            # Notify dashboard of the failure
+            curl -s --connect-timeout 3 -X POST "http://localhost:${DASHBOARD_PORT}/api/worker/error" \
+                -H "Content-Type: application/json" \
+                -d "{\"site_id\": \"site-1\", \"error\": $(echo "${sbatch_output}" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read().strip()))')}" \
+                2>/dev/null || true
+            return 1
         fi
 
         # Stream the SLURM output log in the background
@@ -1572,6 +1588,7 @@ WORKER_SCRIPT
 # Launch all worker sites in parallel
 PIDS=()
 SITE_LABELS=()
+SITE_IDS=()
 remote_site_index=2  # Remote sites start at site-2 (site-1 = head + local workers)
 
 for i in $(seq 0 $((NUM_WORKERS - 1))); do
@@ -1617,6 +1634,7 @@ for i in $(seq 0 $((NUM_WORKERS - 1))); do
             "${pbs_directives}"
         PIDS+=($!)
         SITE_LABELS+=("[site-1] ${site_name}")
+        SITE_IDS+=("site-1")
     else
         # Different resource — dispatch via SSH tunnel
         echo ""
@@ -1635,6 +1653,7 @@ for i in $(seq 0 $((NUM_WORKERS - 1))); do
             "${pbs_directives}" &
         PIDS+=($!)
         SITE_LABELS+=("[site-${remote_site_index}] ${site_name}")
+        SITE_IDS+=("site-${remote_site_index}")
         remote_site_index=$((remote_site_index + 1))
     fi
 done
@@ -1648,8 +1667,14 @@ for i in "${!PIDS[@]}"; do
     if wait "${PIDS[$i]}"; then
         echo "${SITE_LABELS[$i]}: COMPLETED"
     else
-        echo "${SITE_LABELS[$i]}: FAILED (exit $?)"
+        exit_code=$?
+        echo "${SITE_LABELS[$i]}: FAILED (exit ${exit_code})"
         FAILED=$((FAILED + 1))
+        # Notify dashboard that this site failed
+        curl -s --connect-timeout 3 -X POST "http://localhost:${DASHBOARD_PORT}/api/worker/error" \
+            -H "Content-Type: application/json" \
+            -d "{\"site_id\": \"${SITE_IDS[$i]}\", \"error\": \"Worker dispatch failed (exit ${exit_code}). Check workflow logs for details.\"}" \
+            2>/dev/null || true
     fi
 done
 

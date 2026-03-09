@@ -530,6 +530,25 @@ async def worker_pending(request: Request):
     return {"status": "ok"}
 
 
+@app.post("/api/worker/error")
+async def worker_error(request: Request):
+    """Report a worker dispatch failure (e.g. sbatch rejected)."""
+    body = await request.json()
+    site_id = body.get("site_id", "unknown")
+    error_msg = body.get("error", "Unknown error")
+    # Update pending site with error state
+    if site_id in state["pending_sites"]:
+        state["pending_sites"][site_id]["error"] = error_msg
+    else:
+        state["pending_sites"][site_id] = {"error": error_msg}
+    await _broadcast({
+        "type": "worker_error",
+        "site_id": site_id,
+        "error": error_msg,
+    })
+    return {"status": "ok"}
+
+
 @app.post("/api/worker")
 async def register_worker(request: Request):
     """Register a Ray worker node."""
