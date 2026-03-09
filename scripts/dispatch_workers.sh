@@ -671,7 +671,9 @@ mkdir -p "\${WORK}/nodeinfo"
 rm -f "\${WORK}/nodeinfo/"*
 ${node_configs}
 
+_exit_code=0
 cleanup() {
+    _exit_code=\$?
     kill \$(cat "\${WORK}/.proxy_ray_pid" 2>/dev/null) 2>/dev/null || true
     kill \$(cat "\${WORK}/.proxy_dash_pid" 2>/dev/null) 2>/dev/null || true
     for pf in "\${WORK}/.proxy_fwd_"*.pid; do
@@ -685,8 +687,21 @@ cleanup() {
             scancel "\${jid}" 2>/dev/null || true
         fi
     fi
+    exit \${_exit_code}
 }
 trap cleanup EXIT
+
+# Report errors to dashboard if tunnel proxy is available
+report_error() {
+    local msg="\$1"
+    echo "[ERROR] \${msg}"
+    if [ -n "\${PROXY_DASH_PORT:-}" ]; then
+        curl -s --connect-timeout 3 -X POST "http://\${LOGIN_HOST:-localhost}:\${PROXY_DASH_PORT}/api/worker/error" \
+            -H "Content-Type: application/json" \
+            -d "{\"site_id\": \"${site_id}\", \"error\": \$(echo "\${msg}" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read().strip()))' 2>/dev/null || echo '\"Worker dispatch failed\"')}" \
+            2>/dev/null || true
+    fi
+}
 
 # Write per-node task script (runs on each compute node via srun inside sbatch)
 cat > "\${WORK}/srun_task.sh" <<'SRUN_TASK_EOF'
@@ -865,15 +880,27 @@ SBATCH_WRAP_EOF
 chmod +x "\${WORK}/sbatch_wrapper.sh"
 
 # Submit via sbatch and capture job ID
-SBATCH_OUTPUT=\$(sbatch --output="\${WORK}/slurm_worker.out" --error="\${WORK}/slurm_worker.out" "\${WORK}/sbatch_wrapper.sh" 2>&1)
+SBATCH_OUTPUT=\$(sbatch --output="\${WORK}/slurm_worker.out" --error="\${WORK}/slurm_worker.out" "\${WORK}/sbatch_wrapper.sh" 2>&1) || true
 echo "sbatch: \${SBATCH_OUTPUT}"
 SLURM_JOBID=\$(echo "\${SBATCH_OUTPUT}" | grep -oP 'Submitted batch job \K[0-9]+')
 if [ -n "\${SLURM_JOBID}" ]; then
     echo "\${SLURM_JOBID}" > "\${WORK}/slurm_jobid"
     echo "SLURM job ID: \${SLURM_JOBID} (saved to \${WORK}/slurm_jobid)"
 else
-    echo "[ERROR] Could not parse SLURM job ID from: \${SBATCH_OUTPUT}"
+    report_error "sbatch failed: \${SBATCH_OUTPUT}"
     exit 1
+fi
+
+# Check if job was immediately rejected by scheduler
+sleep 2
+JOB_STATE=\$(squeue -j \${SLURM_JOBID} --noheader --format="%T" 2>/dev/null || echo "")
+if [ -z "\${JOB_STATE}" ]; then
+    # Job not in queue — may have been immediately rejected
+    SACCT_STATE=\$(sacct -j \${SLURM_JOBID} --noheader --format=State --parsable2 2>/dev/null | head -1 || echo "")
+    if [ -n "\${SACCT_STATE}" ] && [ "\${SACCT_STATE}" != "PENDING" ] && [ "\${SACCT_STATE}" != "RUNNING" ]; then
+        report_error "SLURM job \${SLURM_JOBID} immediately failed: \${SACCT_STATE}"
+        exit 1
+    fi
 fi
 
 # Stream sbatch output log in the background
@@ -946,9 +973,7 @@ except Exception as e:
 done
 
 if [ "\${TUNNEL_OK}" != "true" ]; then
-    echo "[ERROR] Cannot reach head node through SSH -R reverse tunnel on port ${tunnel_ray_port}"
-    echo "  Last result: \${RESULT}"
-    ss -tlnp 2>/dev/null | grep ":${tunnel_ray_port}" || echo "  Port ${tunnel_ray_port} not listening"
+    report_error "Cannot reach head node through reverse tunnel on port ${tunnel_ray_port}. Last result: \${RESULT}"
     exit 1
 fi
 
@@ -1101,9 +1126,7 @@ except Exception as e:
 done
 
 if [ "\${TUNNEL_OK}" != "true" ]; then
-    echo "[ERROR] Cannot reach head node through SSH -R reverse tunnel on port ${tunnel_ray_port}"
-    echo "  Last result: \${RESULT}"
-    ss -tlnp 2>/dev/null | grep ":${tunnel_ray_port}" || echo "  Port ${tunnel_ray_port} not listening"
+    report_error "Cannot reach head node through reverse tunnel on port ${tunnel_ray_port}. Last result: \${RESULT}"
     exit 1
 fi
 
@@ -1125,14 +1148,33 @@ mkdir -p "\${WORK}/nodeinfo"
 rm -f "\${WORK}/nodeinfo/"*
 ${node_configs}
 
+_exit_code=0
 cleanup() {
+    _exit_code=\$?
     kill \$(cat "\${WORK}/.proxy_ray_pid" 2>/dev/null) 2>/dev/null || true
     kill \$(cat "\${WORK}/.proxy_dash_pid" 2>/dev/null) 2>/dev/null || true
     for pf in "\${WORK}/.proxy_fwd_"*.pid; do
         [ -f "\${pf}" ] && kill \$(cat "\${pf}" 2>/dev/null) 2>/dev/null || true
     done
+    if [ -n "\${PBS_JOBID:-}" ]; then
+        echo "Cancelling PBS job \${PBS_JOBID}..."
+        qdel "\${PBS_JOBID}" 2>/dev/null || true
+    fi
+    exit \${_exit_code}
 }
 trap cleanup EXIT
+
+# Report errors to dashboard if tunnel proxy is available
+report_error() {
+    local msg="\$1"
+    echo "[ERROR] \${msg}"
+    if [ -n "\${PROXY_DASH_PORT:-}" ]; then
+        curl -s --connect-timeout 3 -X POST "http://\${LOGIN_HOST:-localhost}:\${PROXY_DASH_PORT}/api/worker/error" \
+            -H "Content-Type: application/json" \
+            -d "{\"site_id\": \"${site_id}\", \"error\": \$(echo "\${msg}" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read().strip()))' 2>/dev/null || echo '\"Worker dispatch failed\"')}" \
+            2>/dev/null || true
+    fi
+}
 
 # Write PBS task script (runs on each allocated node via pbsdsh)
 cat > "\${WORK}/pbs_task.sh" <<'PBS_TASK_EOF'
@@ -1318,9 +1360,13 @@ PBS_JOB_EOF
 
 echo "Submitting to PBS: qsub \${WORK}/pbs_job.pbs"
 
-QSUB_OUTPUT=\$(qsub "\${WORK}/pbs_job.pbs")
+QSUB_OUTPUT=\$(qsub "\${WORK}/pbs_job.pbs" 2>&1) || true
 echo "PBS job submitted: \${QSUB_OUTPUT}"
-PBS_JOBID=\$(echo "\${QSUB_OUTPUT}" | grep -oP '^\d+' || echo "\${QSUB_OUTPUT}")
+PBS_JOBID=\$(echo "\${QSUB_OUTPUT}" | grep -oP '^\d+' || echo "")
+if [ -z "\${PBS_JOBID}" ]; then
+    report_error "qsub failed: \${QSUB_OUTPUT}"
+    exit 1
+fi
 
 # Wait for all nodes to report hostnames
 echo "Waiting for \${NUM_NODES} compute node(s) to start..."
@@ -1333,8 +1379,7 @@ while true; do
     sleep 2
     attempt=\$((attempt + 1))
     if [ \${attempt} -gt 300 ]; then
-        echo "[ERROR] Timeout waiting for compute nodes after 10min (got \${count}/\${NUM_NODES})"
-        qdel \${PBS_JOBID} 2>/dev/null || true
+        report_error "Timeout waiting for compute nodes after 10min (got \${count}/\${NUM_NODES})"
         exit 1
     fi
 done
@@ -1391,6 +1436,27 @@ mkdir -p "\${WORK}"
 cd "\${WORK}"
 export PW_PARENT_JOB_DIR="\${WORK}"
 
+_exit_code=0
+cleanup() {
+    _exit_code=\$?
+    ray stop --force 2>/dev/null || true
+    kill \${PROXY_PID:-} 2>/dev/null || true
+    exit \${_exit_code}
+}
+trap cleanup EXIT
+
+# Report errors to dashboard if tunnel is available
+report_error() {
+    local msg="\$1"
+    echo "[ERROR] \${msg}"
+    if [ -n "\${DASHBOARD_URL:-}" ]; then
+        curl -s --connect-timeout 3 -X POST "\${DASHBOARD_URL}/api/worker/error" \
+            -H "Content-Type: application/json" \
+            -d "{\"site_id\": \"${site_id}\", \"error\": \$(echo "\${msg}" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read().strip()))' 2>/dev/null || echo '\"Worker dispatch failed\"')}" \
+            2>/dev/null || true
+    fi
+}
+
 # Always fetch latest scripts
 echo 'Checking out scripts...'
 rm -rf _checkout_tmp scripts
@@ -1408,6 +1474,9 @@ VENV_DIR="\$(cat "\${WORK}/RAY_VENV_DIR" 2>/dev/null || echo "\${WORK}/.venv")"
 if [ -f "\${VENV_DIR}/bin/python" ]; then
     source "\${VENV_DIR}/bin/activate"
 fi
+
+# Dashboard URL for error reporting (set early so report_error works during setup)
+DASHBOARD_URL="http://127.0.0.1:${tunnel_dashboard_port}"
 
 # Pin BLAS threading
 export OMP_NUM_THREADS=1
@@ -1463,9 +1532,7 @@ except Exception as e:
 done
 
 if [ "\${TUNNEL_OK}" != "true" ]; then
-    echo "[ERROR] Cannot reach head node through SSH -R reverse tunnel on port ${tunnel_ray_port}"
-    echo "  Last result: \${RESULT}"
-    ss -tlnp 2>/dev/null | grep ":${tunnel_ray_port}" || echo "  Port ${tunnel_ray_port} not listening"
+    report_error "Cannot reach head node through reverse tunnel on port ${tunnel_ray_port}. Last result: \${RESULT}"
     exit 1
 fi
 
@@ -1551,7 +1618,6 @@ fi
 
 echo "Detected cluster: \${CLUSTER_NAME} (\${SCHED_TYPE})"
 
-DASHBOARD_URL="http://127.0.0.1:${tunnel_dashboard_port}"
 curl -s -X POST "\${DASHBOARD_URL}/api/worker" \\
     -H "Content-Type: application/json" \\
     -d "{
@@ -1583,6 +1649,13 @@ WORKER_SCRIPT
         sed -u "s/^/[${site_name}] /"
     local ssh_exit=$?
     echo "[${site_name}] SSH session ended (exit code: ${ssh_exit})"
+    if [ ${ssh_exit} -ne 0 ]; then
+        # Report error to dashboard from workspace side (direct access)
+        curl -s --connect-timeout 3 -X POST "http://localhost:${DASHBOARD_PORT}/api/worker/error" \
+            -H "Content-Type: application/json" \
+            -d "{\"site_id\": \"${site_id}\", \"error\": \"Remote worker failed (SSH exit code ${ssh_exit})\"}" \
+            2>/dev/null || true
+    fi
 }
 
 # Launch all worker sites in parallel
