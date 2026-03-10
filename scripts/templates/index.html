@@ -486,6 +486,50 @@ print(ray.cluster_resources())
 print('Nodes:', len(ray.nodes()))
 "</pre>
         </details>
+
+        <details style="margin-top: 0.5rem;">
+          <summary style="cursor: pointer; color: var(--dim); font-size: 0.85rem; font-weight: 500; user-select: none; margin-bottom: 0.5rem;">
+            Example: GPU hello world
+          </summary>
+          <pre style="background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 0.75rem 1rem; font-size: 0.82rem; color: var(--text); overflow-x: auto; white-space: pre-wrap; margin: 0;">import ray
+import socket
+
+ray.init()
+
+# Check available GPUs across the cluster
+resources = ray.cluster_resources()
+total_gpus = int(resources.get("GPU", 0))
+print(f"Cluster has {total_gpus} GPU(s) across {len(ray.nodes())} node(s)")
+
+@ray.remote(num_gpus=1)
+def gpu_task(task_id):
+    """Run a task on a GPU worker."""
+    import os
+    host = socket.gethostname()
+    gpu_ids = os.environ.get("CUDA_VISIBLE_DEVICES", "none")
+
+    # If torch is available, report GPU details
+    try:
+        import torch
+        if torch.cuda.is_available():
+            name = torch.cuda.get_device_name(0)
+            mem = torch.cuda.get_device_properties(0).total_mem / 1e9
+            # Quick matmul to verify GPU works
+            a = torch.randn(1000, 1000, device="cuda")
+            b = torch.randn(1000, 1000, device="cuda")
+            torch.mm(a, b)
+            return f"Task {task_id} on {host} GPU {gpu_ids}: {name} ({mem:.1f} GB) - matmul OK"
+        return f"Task {task_id} on {host} GPU {gpu_ids}: torch found but CUDA unavailable"
+    except ImportError:
+        return f"Task {task_id} on {host} GPU {gpu_ids}: (install torch for GPU details)"
+
+if total_gpus == 0:
+    print("No GPUs in cluster. Request GPUs via the 'GPUs per Node' option.")
+else:
+    futures = [gpu_task.remote(i) for i in range(total_gpus)]
+    for result in ray.get(futures):
+        print(result)</pre>
+        </details>
       </div>
 
       <!-- Alternative methods (collapsible) -->
