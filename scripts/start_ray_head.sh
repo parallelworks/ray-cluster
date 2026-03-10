@@ -45,6 +45,8 @@ VENV_DIR="$(cat "${JOB_DIR}/RAY_VENV_DIR" 2>/dev/null || echo "${JOB_DIR}/.venv"
 if [ -f "${VENV_DIR}/bin/python" ]; then
     PYTHON_CMD="${VENV_DIR}/bin/python"
     source "${VENV_DIR}/bin/activate"
+    # Keep uv cache alongside the venv (avoids filling small HOME quotas)
+    export UV_CACHE_DIR="$(dirname "${VENV_DIR}")/.uv-cache"
 else
     PYTHON_CMD="python3"
 fi

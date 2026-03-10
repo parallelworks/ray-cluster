@@ -27,6 +27,8 @@ done
 VENV_DIR="${SOFTWARE_DIR}/ray-${RAY_VERSION}"
 UV_DIR="${SOFTWARE_DIR}/.uv"
 UV_BIN="${UV_DIR}/uv"
+# Keep uv cache out of HOME to avoid filling small HOME quotas
+export UV_CACHE_DIR="${SOFTWARE_DIR}/.uv-cache"
 MIN_PYTHON="3.9"
 TARGET_PYTHON="3.12"
 
