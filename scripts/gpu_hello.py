@@ -2,8 +2,8 @@
 """GPU hello world for Ray clusters.
 
 Detects all GPUs in the cluster and queries device info on each worker
-via nvidia-smi (no extra packages required). If torch is available
-(add 'torch' to Extra pip Packages in the workflow form), also runs a
+via nvidia-smi (no extra packages required). If torch is installed
+(see the "Install packages" example on the Connect tab), also runs a
 matrix multiply benchmark and reports TFLOPS.
 
 Usage:
