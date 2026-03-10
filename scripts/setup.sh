@@ -15,12 +15,15 @@ echo "=========================================="
 
 JOB_DIR="${PW_PARENT_JOB_DIR%/}"
 RAY_VERSION="${RAY_VERSION:-2.40.0}"
-# Prefer WORKDIR over HOME for software installs (HOME quota is small on some HPC systems)
-if [ -n "${WORKDIR:-}" ] && [ -d "${WORKDIR}" ]; then
-    SOFTWARE_DIR="${WORKDIR}/pw/software"
-else
-    SOFTWARE_DIR="${HOME}/pw/software"
-fi
+# Prefer large work directories over HOME for software installs
+# (HOME quota is small on some HPC systems)
+SOFTWARE_DIR="${HOME}/pw/software"
+for _workdir in "${WORKDIR:-}" "${SCRATCH:-}" "${WORK:-}" "${SCRATCHDIR:-}"; do
+    if [ -n "${_workdir}" ] && [ -d "${_workdir}" ]; then
+        SOFTWARE_DIR="${_workdir}/pw/software"
+        break
+    fi
+done
 VENV_DIR="${SOFTWARE_DIR}/ray-${RAY_VERSION}"
 UV_DIR="${SOFTWARE_DIR}/.uv"
 UV_BIN="${UV_DIR}/uv"
