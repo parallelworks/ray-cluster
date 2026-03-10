@@ -41,6 +41,7 @@ jobs:
         run: |
           set -e
           export RAY_VERSION="${{ inputs.ray_settings.ray_version }}"
+          export PIP_PACKAGES="${{ inputs.ray_settings.pip_packages }}"
           bash scripts/start_ray_head.sh
         cleanup: |
           echo "Cleaning up Ray head + workers..."
@@ -259,6 +260,7 @@ jobs:
         run: |
           set -e
           export RAY_VERSION="${{ inputs.ray_settings.ray_version }}"
+          export PIP_PACKAGES="${{ inputs.ray_settings.pip_packages }}"
           export DASHBOARD_PORT=$(cat "${PW_PARENT_JOB_DIR}/SESSION_PORT")
           export RAY_HEAD_IP=$(cat "${PW_PARENT_JOB_DIR}/RAY_HEAD_IP")
           export PYTHON_VERSION=$(cat "${PW_PARENT_JOB_DIR}/PYTHON_VERSION")
@@ -633,6 +635,13 @@ jobs:
                 label: "2.39.0"
               - value: "2.38.0"
                 label: "2.38.0"
+
+          pip_packages:
+            type: text
+            label: Extra pip Packages
+            default: ""
+            optional: true
+            tooltip: "Space-separated pip packages to install on all nodes (e.g. 'torch transformers'). Installed into the Ray venv during setup."
 
           # Each worker node registers 1 Ray task slot. Ray handles placement
           # across nodes; tasks use internal parallelism (OpenMP, MPI, PyTorch)

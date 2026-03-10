@@ -489,7 +489,7 @@ print('Nodes:', len(ray.nodes()))
 
         <details style="margin-top: 0.5rem;">
           <summary style="cursor: pointer; color: var(--dim); font-size: 0.85rem; font-weight: 500; user-select: none; margin-bottom: 0.5rem;">
-            Example: GPU hello world
+            Example: GPU hello world (no dependencies)
           </summary>
           <pre style="background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 0.75rem 1rem; font-size: 0.82rem; color: var(--text); overflow-x: auto; white-space: pre-wrap; margin: 0;">import ray
 import socket
@@ -503,7 +503,7 @@ print(f"Cluster has {total_gpus} GPU(s) across {len(ray.nodes())} node(s)")
 
 @ray.remote(num_gpus=1)
 def gpu_task(task_id):
-    """Query GPU info via nvidia-smi (no torch required)."""
+    """Query GPU info via nvidia-smi (no pip packages required)."""
     host = socket.gethostname()
     gpu_ids = os.environ.get("CUDA_VISIBLE_DEVICES", "none")
     try:
@@ -522,6 +522,54 @@ if total_gpus == 0:
     print("No GPUs in cluster. Request GPUs via the 'GPUs per Node' option.")
 else:
     futures = [gpu_task.remote(i) for i in range(total_gpus)]
+    for result in ray.get(futures):
+        print(result)</pre>
+        </details>
+
+        <details style="margin-top: 0.5rem;">
+          <summary style="cursor: pointer; color: var(--dim); font-size: 0.85rem; font-weight: 500; user-select: none; margin-bottom: 0.5rem;">
+            Example: GPU matmul benchmark (requires torch)
+          </summary>
+          <p style="color: var(--dim); font-size: 0.8rem; margin: 0 0 0.5rem 0; padding: 0 0.25rem;">
+            Add <code>torch</code> to <strong>Extra pip Packages</strong> in the Ray Configuration section of the workflow form. Packages are installed on all nodes during cluster setup.
+          </p>
+          <pre style="background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 0.75rem 1rem; font-size: 0.82rem; color: var(--text); overflow-x: auto; white-space: pre-wrap; margin: 0;">import ray
+import socket
+import os
+import time
+
+ray.init()
+
+total_gpus = int(ray.cluster_resources().get("GPU", 0))
+print(f"Cluster has {total_gpus} GPU(s) across {len(ray.nodes())} node(s)")
+
+@ray.remote(num_gpus=1)
+def gpu_matmul(task_id):
+    """Run a matrix multiply benchmark on each GPU."""
+    import torch
+    host = socket.gethostname()
+    gpu_ids = os.environ.get("CUDA_VISIBLE_DEVICES", "none")
+    name = torch.cuda.get_device_name(0)
+    mem_gb = torch.cuda.get_device_properties(0).total_mem / 1e9
+
+    # 4096x4096 matmul benchmark
+    size = 4096
+    a = torch.randn(size, size, device="cuda")
+    b = torch.randn(size, size, device="cuda")
+    torch.cuda.synchronize()
+
+    t0 = time.perf_counter()
+    torch.mm(a, b)
+    torch.cuda.synchronize()
+    elapsed = time.perf_counter() - t0
+
+    tflops = 2 * size**3 / elapsed / 1e12
+    return f"Task {task_id} on {host} GPU {gpu_ids}: {name} ({mem_gb:.1f} GB) - {tflops:.2f} TFLOPS"
+
+if total_gpus == 0:
+    print("No GPUs in cluster. Request GPUs via the 'GPUs per Node' option.")
+else:
+    futures = [gpu_matmul.remote(i) for i in range(total_gpus)]
     for result in ray.get(futures):
         print(result)</pre>
         </details>

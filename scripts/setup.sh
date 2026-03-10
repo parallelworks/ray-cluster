@@ -178,6 +178,17 @@ fi
 "${VENV_DIR}/bin/python" -c "import ray; print('Ray ' + ray.__version__ + ' ready')"
 "${VENV_DIR}/bin/python" -c "import numpy; print('NumPy ' + numpy.__version__ + ' ready')"
 
+# Install extra pip packages if specified
+if [ -n "${PIP_PACKAGES:-}" ]; then
+    echo "Installing extra packages: ${PIP_PACKAGES}"
+    if [ -n "${UV_BIN:-}" ]; then
+        UV_HTTP_TIMEOUT=300 ${UV_BIN} pip install --python "${VENV_DIR}/bin/python" ${PIP_PACKAGES}
+    else
+        "${VENV_DIR}/bin/python" -m pip install --quiet ${PIP_PACKAGES}
+    fi
+    echo "Extra packages installed."
+fi
+
 # Write venv path for other scripts to discover
 echo "${VENV_DIR}" > "${JOB_DIR}/RAY_VENV_DIR"
 touch "${JOB_DIR}/SETUP_COMPLETE"

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """GPU hello world for Ray clusters.
 
-Detects all GPUs in the cluster and queries device info on each worker.
-Uses only NVIDIA's management library (pynvml/nvidia-ml-py) which ships
-with CUDA drivers — no torch required. If torch IS available, also runs
-a quick matrix multiply benchmark.
+Detects all GPUs in the cluster and queries device info on each worker
+via nvidia-smi (no extra packages required). If torch is available
+(add 'torch' to Extra pip Packages in the workflow form), also runs a
+matrix multiply benchmark and reports TFLOPS.
 
 Usage:
     ray job submit --address http://127.0.0.1:8265 --working-dir . -- python scripts/gpu_hello.py
