@@ -643,7 +643,6 @@ cp -r _checkout_tmp/scripts . && rm -rf _checkout_tmp
 # Setup Ray
 export RAY_VERSION='${RAY_VERSION}'
 export PYTHON_MICRO_VERSION='${PYTHON_VERSION}'
-export PIP_PACKAGES='${PIP_PACKAGES}'
 bash scripts/setup.sh
 
 # Activate venv (setup.sh writes path to RAY_VENV_DIR)
@@ -1071,7 +1070,6 @@ cp -r _checkout_tmp/scripts . && rm -rf _checkout_tmp
 # Setup Ray
 export RAY_VERSION='${RAY_VERSION}'
 export PYTHON_MICRO_VERSION='${PYTHON_VERSION}'
-export PIP_PACKAGES='${PIP_PACKAGES}'
 bash scripts/setup.sh
 
 # Activate venv (setup.sh writes path to RAY_VENV_DIR)
@@ -1469,7 +1467,6 @@ cp -r _checkout_tmp/scripts . && rm -rf _checkout_tmp
 # Setup — install Ray with matching Python version
 export RAY_VERSION='${RAY_VERSION}'
 export PYTHON_MICRO_VERSION='${PYTHON_VERSION}'
-export PIP_PACKAGES='${PIP_PACKAGES}'
 bash scripts/setup.sh
 
 # Activate venv (setup.sh writes path to RAY_VENV_DIR)
