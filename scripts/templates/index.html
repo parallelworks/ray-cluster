@@ -489,31 +489,13 @@ print('Nodes:', len(ray.nodes()))
 
         <details style="margin-top: 0.5rem;">
           <summary style="cursor: pointer; color: var(--dim); font-size: 0.85rem; font-weight: 500; user-select: none; margin-bottom: 0.5rem;">
-            Example: Install packages on all workers
+            Example: Install packages on workers
           </summary>
           <p style="color: var(--dim); font-size: 0.8rem; margin: 0 0 0.5rem 0; padding: 0 0.25rem;">
-            Install pip packages into the cluster's existing venv on every node. Uses Ray tasks to run the install in parallel — each node installs once. Packages persist for the lifetime of the cluster.
+            Install pip packages into the cluster's venv. On HPC sites (SLURM/PBS) where nodes share a filesystem, one install covers all workers. For multi-site clusters, run on each site.
           </p>
-          <pre style="background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 0.75rem 1rem; font-size: 0.82rem; color: var(--text); overflow-x: auto; white-space: pre-wrap; margin: 0;"># Install torch on all workers (run once, persists for cluster lifetime)
-ray job submit --address http://127.0.0.1:8265 -- python -c "
-import ray, subprocess, sys, socket
-ray.init()
-
-@ray.remote(num_cpus=1)
-def install(packages):
-    host = socket.gethostname()
-    result = subprocess.run(
-        [sys.executable, '-m', 'pip', 'install', '--quiet'] + packages,
-        capture_output=True, text=True
-    )
-    status = 'ok' if result.returncode == 0 else result.stderr.strip()
-    return f'{host}: {status}'
-
-nodes = ray.nodes()
-futures = [install.remote(['torch']) for _ in range(len(nodes) - 1)]  # skip head
-for r in ray.get(futures):
-    print(r)
-"</pre>
+          <pre style="background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 0.75rem 1rem; font-size: 0.82rem; color: var(--text); overflow-x: auto; white-space: pre-wrap; margin: 0;"># Install packages into the cluster venv (persists for cluster lifetime)
+ray job submit --address http://127.0.0.1:8265 -- pip install torch</pre>
         </details>
 
         <details style="margin-top: 0.5rem;">
