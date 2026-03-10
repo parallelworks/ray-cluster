@@ -15,7 +15,12 @@ echo "=========================================="
 
 JOB_DIR="${PW_PARENT_JOB_DIR%/}"
 RAY_VERSION="${RAY_VERSION:-2.40.0}"
-SOFTWARE_DIR="${HOME}/pw/software"
+# Prefer WORKDIR over HOME for software installs (HOME quota is small on some HPC systems)
+if [ -n "${WORKDIR:-}" ] && [ -d "${WORKDIR}" ]; then
+    SOFTWARE_DIR="${WORKDIR}/pw/software"
+else
+    SOFTWARE_DIR="${HOME}/pw/software"
+fi
 VENV_DIR="${SOFTWARE_DIR}/ray-${RAY_VERSION}"
 UV_DIR="${SOFTWARE_DIR}/.uv"
 UV_BIN="${UV_DIR}/uv"
@@ -177,6 +182,11 @@ fi
 # Verify
 "${VENV_DIR}/bin/python" -c "import ray; print('Ray ' + ray.__version__ + ' ready')"
 "${VENV_DIR}/bin/python" -c "import numpy; print('NumPy ' + numpy.__version__ + ' ready')"
+
+# Symlink uv into venv bin so it's on PATH when venv is activated
+if [ -x "${UV_BIN}" ] && [ ! -e "${VENV_DIR}/bin/uv" ]; then
+    ln -s "${UV_BIN}" "${VENV_DIR}/bin/uv"
+fi
 
 # Write venv path for other scripts to discover
 echo "${VENV_DIR}" > "${JOB_DIR}/RAY_VENV_DIR"
