@@ -493,35 +493,30 @@ print('Nodes:', len(ray.nodes()))
           </summary>
           <pre style="background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 0.75rem 1rem; font-size: 0.82rem; color: var(--text); overflow-x: auto; white-space: pre-wrap; margin: 0;">import ray
 import socket
+import subprocess
+import os
 
 ray.init()
 
-# Check available GPUs across the cluster
-resources = ray.cluster_resources()
-total_gpus = int(resources.get("GPU", 0))
+total_gpus = int(ray.cluster_resources().get("GPU", 0))
 print(f"Cluster has {total_gpus} GPU(s) across {len(ray.nodes())} node(s)")
 
 @ray.remote(num_gpus=1)
 def gpu_task(task_id):
-    """Run a task on a GPU worker."""
-    import os
+    """Query GPU info via nvidia-smi (no torch required)."""
     host = socket.gethostname()
     gpu_ids = os.environ.get("CUDA_VISIBLE_DEVICES", "none")
-
-    # If torch is available, report GPU details
     try:
-        import torch
-        if torch.cuda.is_available():
-            name = torch.cuda.get_device_name(0)
-            mem = torch.cuda.get_device_properties(0).total_mem / 1e9
-            # Quick matmul to verify GPU works
-            a = torch.randn(1000, 1000, device="cuda")
-            b = torch.randn(1000, 1000, device="cuda")
-            torch.mm(a, b)
-            return f"Task {task_id} on {host} GPU {gpu_ids}: {name} ({mem:.1f} GB) - matmul OK"
-        return f"Task {task_id} on {host} GPU {gpu_ids}: torch found but CUDA unavailable"
-    except ImportError:
-        return f"Task {task_id} on {host} GPU {gpu_ids}: (install torch for GPU details)"
+        out = subprocess.check_output(
+            ["nvidia-smi", "--query-gpu=name,memory.total",
+             "--format=csv,noheader,nounits",
+             f"--id={gpu_ids.split(',')[0]}"],
+            text=True, timeout=10,
+        ).strip()
+        name, mem_mb = [x.strip() for x in out.split(",")]
+        return f"Task {task_id} on {host} GPU {gpu_ids}: {name} ({float(mem_mb)/1024:.1f} GB)"
+    except Exception as e:
+        return f"Task {task_id} on {host} GPU {gpu_ids}: nvidia-smi failed ({e})"
 
 if total_gpus == 0:
     print("No GPUs in cluster. Request GPUs via the 'GPUs per Node' option.")
