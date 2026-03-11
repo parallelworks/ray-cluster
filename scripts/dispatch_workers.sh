@@ -1651,9 +1651,11 @@ WORKER_SCRIPT
 
     # Pipe script via stdin to avoid quoting issues with SSH command strings
     echo "[${site_name}] Connecting via SSH (PW proxy)..."
+    set -o pipefail
     ssh "${SSH_ARGS[@]}" "${PW_USER}@${site_name}" 'bash -s' < "${script_file}" 2>&1 | \
         sed -u "s/^/[${site_name}] /"
     local ssh_exit=$?
+    set +o pipefail
     echo "[${site_name}] SSH session ended (exit code: ${ssh_exit})"
     if [ ${ssh_exit} -ne 0 ]; then
         # Report error to dashboard from workspace side (direct access)
