@@ -1380,6 +1380,8 @@ if [ -z "\${PBS_JOBID}" ]; then
     report_error "qsub failed: \${QSUB_OUTPUT}"
     exit 1
 fi
+echo "\${PBS_JOBID}" > "\${WORK}/pbs_jobid"
+echo "PBS job ID: \${PBS_JOBID} (saved to \${WORK}/pbs_jobid)"
 
 # Wait for all nodes to report hostnames
 echo "Waiting for \${NUM_NODES} compute node(s) to start..."
