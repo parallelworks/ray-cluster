@@ -1362,6 +1362,9 @@ wait
 PBS_JOB_EOF
 
 echo "Submitting to PBS: qsub \${WORK}/pbs_job.pbs"
+echo "--- pbs_job.pbs contents ---"
+head -15 "\${WORK}/pbs_job.pbs"
+echo "---"
 
 QSUB_OUTPUT=\$(qsub "\${WORK}/pbs_job.pbs" 2>&1) || true
 echo "PBS job submitted: \${QSUB_OUTPUT}"
