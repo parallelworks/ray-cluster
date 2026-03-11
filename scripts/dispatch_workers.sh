@@ -119,6 +119,7 @@ echo "=========================================="
 echo "Dispatch Workers: $(date)"
 echo "=========================================="
 echo "Worker sites:  ${NUM_WORKERS}"
+echo "Parsed config: $(echo "${SITES_JSON}" | ${PYTHON_CMD} -c "import sys,json;print(json.dumps(json.load(sys.stdin),indent=2))")"
 echo "Head resource: ${HEAD_RESOURCE_NAME}"
 echo "Dashboard:     localhost:${DASHBOARD_PORT}"
 echo "Ray head:      ${RAY_HEAD_IP}:${RAY_PORT}"
@@ -280,6 +281,7 @@ NODE_SCRIPT
         chmod +x "${node_script}"
 
         # Write PBS job script to shared filesystem (JOB_DIR, not WORK_DIR which is /tmp and node-local)
+        echo "  PBS config: queue='${pbs_queue}' account='${pbs_account}' nodes='${num_nodes}' select='${pbs_select}' walltime='${pbs_walltime}'"
         local script_file="${JOB_DIR}/worker_local_${site_index}.pbs"
         local pbs_select_str="${pbs_select:-${num_nodes}:ncpus=1}"
         cat > "${script_file}" <<PBS_SCRIPT
@@ -1045,6 +1047,7 @@ NODECONF"
         done
 
         # Build PBS directives
+        echo "  PBS config: queue='${pbs_queue}' account='${pbs_account}' nodes='${num_nodes}' select='${pbs_select}' walltime='${pbs_walltime}'"
         local pbs_q_directive=""
         [ -n "${pbs_queue}" ] && pbs_q_directive="#PBS -q ${pbs_queue}"
         local pbs_a_directive=""
