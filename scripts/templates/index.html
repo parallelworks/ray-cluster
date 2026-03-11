@@ -391,7 +391,7 @@
         </div>
       </div>
     </div>
-    <div class="chart-row">
+    <div class="chart-row" id="throughput-row">
       <div class="chart-card" style="grid-column: 1 / -1;">
         <div class="card-title" id="throughput-title">Throughput (tasks/sec)</div>
         <div class="chart-body">
@@ -872,7 +872,8 @@ function switchTab(tab) {
 
   if (tab === 'cluster') {
     clusterView.classList.remove('view-hidden');
-    throughputMini.style.display = '';
+    throughputMini.style.display = workloadType === 'cluster_only' ? 'none' : '';
+    document.getElementById('throughput-row').style.display = workloadType === 'cluster_only' ? 'none' : '';
     if (workloadType === 'benchmark') resultsCard.style.display = '';
     else resultsCard.style.display = 'none';
     rayIframe.src = 'about:blank';
@@ -1705,6 +1706,8 @@ function connect() {
         }
         if (workloadType === 'cluster_only') {
           document.getElementById('tab-cluster-only').classList.remove('hidden');
+          document.getElementById('throughput-row').style.display = 'none';
+          document.getElementById('throughput-mini-card').style.display = 'none';
         }
       }
 
@@ -1741,6 +1744,8 @@ function connect() {
             workloadType = 'cluster_only';
             updateChartLabels();
             document.getElementById('tab-cluster-only').classList.remove('hidden');
+            document.getElementById('throughput-row').style.display = 'none';
+            document.getElementById('throughput-mini-card').style.display = 'none';
             switchTab('cluster-only');
           } else if (data.workload_type === 'fractal') {
             workloadType = 'fractal';
@@ -1827,6 +1832,8 @@ function connect() {
         }
         if (workloadType === 'cluster_only') {
           document.getElementById('tab-cluster-only').classList.remove('hidden');
+          document.getElementById('throughput-row').style.display = 'none';
+          document.getElementById('throughput-mini-card').style.display = 'none';
           switchTab('cluster-only');
         }
       } else {
