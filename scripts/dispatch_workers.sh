@@ -1322,8 +1322,9 @@ done
 PBS_TASK_EOF
 chmod +x "\${WORK}/pbs_task.sh"
 
-# Write PBS job script
-cat > "\${WORK}/pbs_job.pbs" <<PBS_JOB_EOF
+# Write PBS job script — split into expanded header + quoted body
+# Header: variables expanded on login node (WORK, LOGIN_HOST, ports)
+cat > "\${WORK}/pbs_job.pbs" <<PBS_HEADER
 #!/bin/bash
 #PBS -l select=${pbs_select:-${num_nodes}:ncpus=1}
 #PBS -l walltime=${pbs_walltime:-01:00:00}
@@ -1341,6 +1342,12 @@ export EXPECTED_SITE_ID="${site_id}"
 export OMP_NUM_THREADS=1
 export MKL_NUM_THREADS=1
 export OPENBLAS_NUM_THREADS=1
+PBS_HEADER
+# Body: quoted heredoc so PBS_NODEFILE, NODES, etc. are NOT expanded
+# on the login node — they must remain as variables for the PBS job.
+# Note: \$ escaping survives the outer WORKER_SCRIPT heredoc → becomes $
+# in the generated script, then <<'PBS_BODY' prevents further expansion.
+cat >> "\${WORK}/pbs_job.pbs" <<'PBS_BODY'
 
 # Read allocated nodes
 NODES=(\$(sort -u "\${PBS_NODEFILE}"))
@@ -1359,11 +1366,11 @@ done
 
 # Wait for all
 wait
-PBS_JOB_EOF
+PBS_BODY
 
 echo "Submitting to PBS: qsub \${WORK}/pbs_job.pbs"
 echo "--- pbs_job.pbs contents ---"
-head -15 "\${WORK}/pbs_job.pbs"
+head -20 "\${WORK}/pbs_job.pbs"
 echo "---"
 
 QSUB_OUTPUT=\$(qsub "\${WORK}/pbs_job.pbs" 2>&1) || true
