@@ -115,7 +115,7 @@ jobs:
               if sched == 'slurm':
                   subprocess.run(
                       ssh_base + [
-                          'WORK=\${HOME}/pw/jobs/ray_worker_remote; '
+                          'WORK=\${PW_PARENT_JOB_DIR:-\${HOME}/pw/jobs/ray_worker_remote}; '
                           'if [ -f \"\${WORK}/slurm_jobid\" ]; then '
                           '  jid=\$(cat \"\${WORK}/slurm_jobid\"); '
                           '  echo \"Cancelling SLURM job \${jid}\"; '
@@ -129,7 +129,7 @@ jobs:
               elif sched == 'pbs':
                   subprocess.run(
                       ssh_base + [
-                          'WORK=\${HOME}/pw/jobs/ray_worker_remote; '
+                          'WORK=\${PW_PARENT_JOB_DIR:-\${HOME}/pw/jobs/ray_worker_remote}; '
                           'if [ -f \"\${WORK}/pbs_jobid\" ]; then '
                           '  jid=\$(cat \"\${WORK}/pbs_jobid\"); '
                           '  echo \"Cancelling PBS job \${jid}\"; '
