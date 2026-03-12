@@ -126,6 +126,19 @@ echo "Dashboard:     localhost:${DASHBOARD_PORT}"
 echo "Ray head:      ${RAY_HEAD_IP}:${RAY_PORT}"
 echo "Python:        ${PYTHON_VERSION}"
 echo "Ray version:   ${RAY_VERSION}"
+echo ""
+echo "PW auth debug:"
+echo "  PW_USER=${PW_USER:-<unset>}"
+echo "  PW_API_KEY=${PW_API_KEY:+set (${#PW_API_KEY} chars)}"
+echo "  PW_API_KEY=${PW_API_KEY:-<unset>}"
+echo "  PW_PLATFORM_HOST=${PW_PLATFORM_HOST:-<unset>}"
+echo "  PW_KEY=${PW_KEY:-<unset>}"
+echo "  ACTIVATE_API_KEY=${ACTIVATE_API_KEY:+set (${#ACTIVATE_API_KEY} chars)}"
+echo "  ACTIVATE_API_KEY=${ACTIVATE_API_KEY:-<unset>}"
+# Print all PW/ACTIVATE env vars (names only, not values)
+env | grep -iE '^(PW_|ACTIVATE_)' | sed 's/=.*/=.../' | sort || true
+echo "  pw auth whoami: $(${PW_CMD} auth whoami 2>&1 || true)"
+echo "  pw cluster list: $(${PW_CMD} cluster list 2>&1 | head -5 || true)"
 
 if [ "${NUM_WORKERS}" -eq 0 ]; then
     echo ""
