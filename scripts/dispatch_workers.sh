@@ -541,9 +541,10 @@ dispatch_worker() {
     done
 
     # Allocate 2 ports on the remote for pw ssh tunnels (dashboard + Ray GCS)
+    # Note: || true prevents set -e from killing background dispatch on pw ssh failure
     local tunnel_dashboard_port
     tunnel_dashboard_port=$(${PW_CMD} ssh "${site_name}" \
-        'python3 -c "import socket; s=socket.socket(); s.bind((\"\",0)); print(s.getsockname()[1]); s.close()"' 2>/dev/null)
+        'python3 -c "import socket; s=socket.socket(); s.bind((\"\",0)); print(s.getsockname()[1]); s.close()"' 2>&1) || true
 
     if [ -z "${tunnel_dashboard_port}" ] || ! [[ "${tunnel_dashboard_port}" =~ ^[0-9]+$ ]]; then
         echo "[${site_name}] [ERROR] Failed to allocate dashboard tunnel port (got: '${tunnel_dashboard_port}')"
@@ -552,7 +553,7 @@ dispatch_worker() {
 
     local tunnel_ray_port
     tunnel_ray_port=$(${PW_CMD} ssh "${site_name}" \
-        'python3 -c "import socket; s=socket.socket(); s.bind((\"\",0)); print(s.getsockname()[1]); s.close()"' 2>/dev/null)
+        'python3 -c "import socket; s=socket.socket(); s.bind((\"\",0)); print(s.getsockname()[1]); s.close()"' 2>&1) || true
 
     if [ -z "${tunnel_ray_port}" ] || ! [[ "${tunnel_ray_port}" =~ ^[0-9]+$ ]]; then
         echo "[${site_name}] [ERROR] Failed to allocate Ray tunnel port (got: '${tunnel_ray_port}')"
