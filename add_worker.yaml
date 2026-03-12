@@ -158,6 +158,7 @@ jobs:
           export WORKERS_JSON='${{ inputs.workers }}'
           export HEAD_RESOURCE_NAME='${{ inputs.head.resource.name }}'
           export SITE_INDEX_OFFSET="${{ needs.validate_cluster.outputs.SITE_INDEX_OFFSET }}"
+          export DISPATCH_AND_EXIT=true
 
           bash scripts/dispatch_workers.sh
         cleanup: |

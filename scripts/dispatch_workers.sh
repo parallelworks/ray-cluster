@@ -13,6 +13,7 @@
 #   PYTHON_VERSION     - Python micro version for worker matching
 #   RAY_VERSION        - Ray version to install
 #   SITE_INDEX_OFFSET  - Offset for tunnel IPs/ports (avoids conflicts with existing workers)
+#   DISPATCH_AND_EXIT  - If "true", exit after dispatch instead of monitoring (add_worker mode)
 
 set -e
 
@@ -2003,6 +2004,75 @@ done
 
 echo ""
 echo "All ${NUM_WORKERS} worker site(s) dispatched, waiting..."
+
+# In fire-and-forget mode (e.g., add_worker), don't block on SSH sessions.
+# Wait briefly for workers to connect to Ray, then exit cleanly.
+if [ "${DISPATCH_AND_EXIT:-false}" = "true" ]; then
+    VENV_DIR_CHECK="$(cat "${JOB_DIR}/RAY_VENV_DIR" 2>/dev/null || echo "")"
+    PY_CHECK="${VENV_DIR_CHECK}/bin/python"
+    [ ! -x "${PY_CHECK}" ] && PY_CHECK="python3"
+
+    echo "Fire-and-forget mode: waiting for workers to connect..."
+    CONNECTED=false
+    for check in $(seq 1 60); do
+        # Check if any background dispatch has failed early
+        EARLY_FAIL=false
+        for i in "${!PIDS[@]}"; do
+            if ! kill -0 "${PIDS[$i]}" 2>/dev/null; then
+                # Process ended — check exit code
+                if ! wait "${PIDS[$i]}" 2>/dev/null; then
+                    echo "${SITE_LABELS[$i]}: FAILED"
+                    EARLY_FAIL=true
+                fi
+            fi
+        done
+        if [ "${EARLY_FAIL}" = "true" ]; then
+            echo "[ERROR] One or more worker dispatches failed"
+            exit 1
+        fi
+
+        WORKER_CPUS=$(curl -s --max-time 5 "http://${RAY_HEAD_IP}:8265/nodes?view=summary" 2>/dev/null | \
+            ${PY_CHECK} -c "
+import json, sys
+try:
+    data = json.load(sys.stdin)
+    nodes = data.get('data', {}).get('summary', [])
+    cpus = sum(n.get('raylet', {}).get('resourcesTotal', {}).get('CPU', 0)
+               for n in nodes if n.get('raylet', {}).get('state', '') == 'ALIVE')
+    print(int(cpus))
+except:
+    print(0)
+" 2>/dev/null || echo "0")
+        if [ "${WORKER_CPUS}" -gt 0 ]; then
+            echo "Workers connected! (${WORKER_CPUS} CPUs in cluster)"
+            CONNECTED=true
+            break
+        fi
+        [ $((check % 6)) -eq 0 ] && echo "  Still waiting for workers... (${check}0s elapsed)"
+        sleep 10
+    done
+
+    # Disown background SSH sessions so they survive script exit
+    for pid in "${PIDS[@]}"; do
+        disown "${pid}" 2>/dev/null || true
+    done
+
+    if [ "${CONNECTED}" = "true" ]; then
+        echo ""
+        echo "=========================================="
+        echo "Workers dispatched and connected!"
+        echo "  Worker sites: ${NUM_WORKERS}"
+        echo "=========================================="
+    else
+        echo ""
+        echo "=========================================="
+        echo "Workers dispatched (not yet confirmed connected)"
+        echo "  Worker sites: ${NUM_WORKERS}"
+        echo "  Check dashboard for status."
+        echo "=========================================="
+    fi
+    exit 0
+fi
 
 # Wait for all background dispatch processes (SSH sessions, log streamers)
 FAILED=0
