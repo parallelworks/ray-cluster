@@ -289,6 +289,7 @@ NODE_SCRIPT
 #PBS -l select=${pbs_select_str}
 #PBS -l walltime=${pbs_walltime:-01:00:00}
 #PBS -j oe
+#PBS -V
 $([ -n "${pbs_queue}" ] && echo "#PBS -q ${pbs_queue}")
 $([ -n "${pbs_account}" ] && echo "#PBS -A ${pbs_account}")
 $(echo "${pbs_directives}" | grep -v '^$' || true)
@@ -340,6 +341,7 @@ PBS_SCRIPT
 #SBATCH --output=${log_file}
 #SBATCH --error=${log_file}
 #SBATCH --job-name=ray-worker-${site_name}
+#SBATCH --export=ALL
 $([ -n "${slurm_partition}" ] && echo "#SBATCH --partition=${slurm_partition}")
 $([ -n "${slurm_account}" ] && echo "#SBATCH --account=${slurm_account}")
 $([ -n "${slurm_qos}" ] && echo "#SBATCH --qos=${slurm_qos}")
@@ -867,6 +869,7 @@ cat > "\${WORK}/sbatch_wrapper.sh" <<SBATCH_WRAP_EOF
 #SBATCH --nodes=${num_nodes}
 #SBATCH --ntasks=${num_nodes}
 #SBATCH --job-name=ray-worker-${site_id}
+#SBATCH --export=ALL
 ${sbatch_directives}
 
 WORK="\${WORK}"
@@ -1337,6 +1340,7 @@ cat > "\${WORK}/pbs_job.pbs" <<PBS_HEADER
 #PBS -l select=${pbs_select:-${num_nodes}:ncpus=1}
 #PBS -l walltime=${pbs_walltime:-01:00:00}
 #PBS -j oe
+#PBS -V
 ${pbs_q_directive}
 ${pbs_a_directive}
 ${pbs_extra_directives}
