@@ -12,6 +12,7 @@
 #   RAY_HEAD_IP        - Ray head node IP
 #   PYTHON_VERSION     - Python micro version for worker matching
 #   RAY_VERSION        - Ray version to install
+#   SITE_INDEX_OFFSET  - Offset for tunnel IPs/ports (avoids conflicts with existing workers)
 
 set -e
 
@@ -1881,7 +1882,10 @@ WORKER_SCRIPT
 PIDS=()
 SITE_LABELS=()
 SITE_IDS=()
-remote_site_index=2  # Remote sites start at site-2 (site-1 = head + local workers)
+# Remote sites start at site-2 (site-1 = head + local workers)
+# SITE_INDEX_OFFSET shifts IPs/ports to avoid conflicts when adding workers to existing clusters
+SITE_INDEX_OFFSET=${SITE_INDEX_OFFSET:-0}
+remote_site_index=$((2 + SITE_INDEX_OFFSET))
 
 for i in $(seq 0 $((NUM_WORKERS - 1))); do
     site_name=$(echo "${SITES_JSON}" | ${PYTHON_CMD} -c "import sys,json;print(json.load(sys.stdin)[${i}]['name'])")

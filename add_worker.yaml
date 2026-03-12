@@ -110,10 +110,30 @@ jobs:
             echo "WARNING: Dashboard not responding (non-fatal)"
           fi
 
+          # Count existing remote worker sites (tunnel IPs 127.0.X.Y)
+          # so new workers get non-conflicting IPs and ports
+          EXISTING_SITES=$(python3 -c "
+          import ray
+          ray.init(address='${RAY_HEAD_IP}:6379', ignore_reinit_error=True)
+          nodes = ray.nodes()
+          # Count unique site indices from tunnel IPs (127.0.X.Y → X is site index)
+          site_indices = set()
+          for n in nodes:
+              if n.get('Alive'):
+                  ip = n.get('NodeManagerAddress', '')
+                  parts = ip.split('.')
+                  if len(parts) == 4 and parts[0] == '127' and parts[1] == '0':
+                      site_indices.add(int(parts[2]))
+          ray.shutdown()
+          print(len(site_indices))
+          " 2>/dev/null || echo "0")
+          echo "Existing remote worker sites: ${EXISTING_SITES}"
+
           # Pass values to downstream jobs
           echo "RAY_HEAD_IP=${RAY_HEAD_IP}" >> "${OUTPUTS}"
           echo "SESSION_PORT=${SESSION_PORT}" >> "${OUTPUTS}"
           echo "PYTHON_VERSION=${PYTHON_VERSION}" >> "${OUTPUTS}"
+          echo "SITE_INDEX_OFFSET=${EXISTING_SITES}" >> "${OUTPUTS}"
 
           echo "=========================================="
           echo "Cluster validated — ready to add workers"
@@ -137,6 +157,7 @@ jobs:
           export PYTHON_VERSION="${{ needs.validate_cluster.outputs.PYTHON_VERSION }}"
           export WORKERS_JSON='${{ inputs.workers }}'
           export HEAD_RESOURCE_NAME='${{ inputs.head.resource.name }}'
+          export SITE_INDEX_OFFSET="${{ needs.validate_cluster.outputs.SITE_INDEX_OFFSET }}"
 
           bash scripts/dispatch_workers.sh
         cleanup: |
