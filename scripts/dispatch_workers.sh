@@ -655,7 +655,8 @@ if [ -f "\${VENV_DIR}/bin/python" ]; then
     source "\${VENV_DIR}/bin/activate"
 fi
 
-LOGIN_HOST=\$(hostname)
+# Use short hostname for LOGIN_HOST — compute nodes often can't resolve FQDNs
+LOGIN_HOST=\$(hostname -s)
 NUM_NODES=${num_nodes}
 
 # Kill stale proxy processes from prior cancelled runs
@@ -1084,7 +1085,8 @@ if [ -f "\${VENV_DIR}/bin/python" ]; then
     source "\${VENV_DIR}/bin/activate"
 fi
 
-LOGIN_HOST=\$(hostname)
+# Use short hostname for LOGIN_HOST — compute nodes often can't resolve FQDNs
+LOGIN_HOST=\$(hostname -s)
 NUM_NODES=${num_nodes}
 
 # Kill stale proxy processes from prior cancelled runs
