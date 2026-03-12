@@ -247,6 +247,15 @@ async def _poll_ray_api():
                             if ip not in stats["node_ips"]:
                                 stats["node_ips"].append(ip)
                             changed = True
+                        else:
+                            # Update GPU/CPU counts from Ray (authoritative source)
+                            node_data = state["nodes"][ip]
+                            if int(gpus) != node_data.get("num_gpus", 0):
+                                node_data["num_gpus"] = int(gpus)
+                                changed = True
+                            if int(cpus) != node_data.get("num_cpus", 0):
+                                node_data["num_cpus"] = int(cpus)
+                                changed = True
 
                 state["ray_cluster_nodes"] = ray_info
                 if not logged_first and ray_info:
