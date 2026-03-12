@@ -547,7 +547,7 @@ dispatch_worker() {
     # Use full pw:// path (pw://owner/cluster) so pw ssh works for shared clusters
     local pw_ssh_target="${site_name}"
     if [ -n "${site_user}" ]; then
-        pw_ssh_target="${site_user}/${site_name}"
+        pw_ssh_target="pw://${site_user}/${site_name}"
     fi
     local SSH_TARGET="${pw_ssh_target}"
     local PORT_ALLOC_CMD='python3 -c "import socket; s=socket.socket(); s.bind((\"\",0)); print(s.getsockname()[1]); s.close()"'
