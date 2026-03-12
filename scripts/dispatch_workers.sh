@@ -1184,8 +1184,16 @@ cat > "\${WORK}/pbs_task.sh" <<'PBS_TASK_EOF'
 #!/bin/bash
 set -e
 
-# Determine node index from PBS_NODENUM
-if [ -n "\${PBS_NODENUM}" ]; then
+# Source environment (pbsdsh does not inherit the PBS job's exports)
+SCRIPT_DIR="\$(cd "\$(dirname "\$0")" && pwd)"
+if [ -f "\${SCRIPT_DIR}/pbs_env.sh" ]; then
+    source "\${SCRIPT_DIR}/pbs_env.sh"
+fi
+
+# Determine node index from argument or PBS_NODENUM
+if [ -n "\${1}" ]; then
+    PROC_ID=\${1}
+elif [ -n "\${PBS_NODENUM}" ]; then
     PROC_ID=\${PBS_NODENUM}
 else
     PROC_ID=0
@@ -1349,6 +1357,19 @@ PBS_HEADER
 # in the generated script, then <<'PBS_BODY' prevents further expansion.
 cat >> "\${WORK}/pbs_job.pbs" <<'PBS_BODY'
 
+# Write env file for pbsdsh tasks (pbsdsh does not inherit exports)
+cat > "\${WORK_DIR}/pbs_env.sh" <<ENV_EOF
+export WORK_DIR="\${WORK_DIR}"
+export LOGIN_HOST="\${LOGIN_HOST}"
+export PROXY_RAY_PORT="\${PROXY_RAY_PORT}"
+export PROXY_DASH_PORT="\${PROXY_DASH_PORT}"
+export EXPECTED_CLUSTER_NAME="\${EXPECTED_CLUSTER_NAME}"
+export EXPECTED_SITE_ID="\${EXPECTED_SITE_ID}"
+export OMP_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+export OPENBLAS_NUM_THREADS=1
+ENV_EOF
+
 # Read allocated nodes
 NODES=(\$(sort -u "\${PBS_NODEFILE}"))
 NUM_ALLOCATED=\${#NODES[@]}
@@ -1361,7 +1382,7 @@ done
 
 # Run worker on each allocated node via pbsdsh
 for NODE_INDEX in \$(seq 0 \$((\${NUM_ALLOCATED} - 1))); do
-    PBS_NODENUM=\${NODE_INDEX} pbsdsh -n \${NODE_INDEX} -- bash "\${WORK_DIR}/pbs_task.sh" &
+    pbsdsh -n \${NODE_INDEX} -- bash "\${WORK_DIR}/pbs_task.sh" \${NODE_INDEX} &
 done
 
 # Wait for all
