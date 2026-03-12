@@ -581,19 +581,22 @@ dispatch_worker() {
 
     # Allocate 2 ports on the remote for tunnels (dashboard + Ray GCS)
     # Note: || true prevents set -e from killing background dispatch on ssh failure
-    local tunnel_dashboard_port
-    tunnel_dashboard_port=$(ssh "${SSH_BASE_ARGS[@]}" "${PW_USER}@${SSH_TARGET}" "${PORT_ALLOC_CMD}" 2>&1) || true
+    # Use tail -1 to grab the port number (last line) — MOTD banners may precede it
+    local tunnel_dashboard_port tunnel_dashboard_raw
+    tunnel_dashboard_raw=$(ssh "${SSH_BASE_ARGS[@]}" "${PW_USER}@${SSH_TARGET}" "${PORT_ALLOC_CMD}" 2>/dev/null) || true
+    tunnel_dashboard_port=$(echo "${tunnel_dashboard_raw}" | tail -1 | tr -d '[:space:]')
 
     if [ -z "${tunnel_dashboard_port}" ] || ! [[ "${tunnel_dashboard_port}" =~ ^[0-9]+$ ]]; then
-        echo "[${site_name}] [ERROR] Failed to allocate dashboard tunnel port (got: '${tunnel_dashboard_port}')"
+        echo "[${site_name}] [ERROR] Failed to allocate dashboard tunnel port (got: '${tunnel_dashboard_raw}')"
         return 1
     fi
 
-    local tunnel_ray_port
-    tunnel_ray_port=$(ssh "${SSH_BASE_ARGS[@]}" "${PW_USER}@${SSH_TARGET}" "${PORT_ALLOC_CMD}" 2>&1) || true
+    local tunnel_ray_port tunnel_ray_raw
+    tunnel_ray_raw=$(ssh "${SSH_BASE_ARGS[@]}" "${PW_USER}@${SSH_TARGET}" "${PORT_ALLOC_CMD}" 2>/dev/null) || true
+    tunnel_ray_port=$(echo "${tunnel_ray_raw}" | tail -1 | tr -d '[:space:]')
 
     if [ -z "${tunnel_ray_port}" ] || ! [[ "${tunnel_ray_port}" =~ ^[0-9]+$ ]]; then
-        echo "[${site_name}] [ERROR] Failed to allocate Ray tunnel port (got: '${tunnel_ray_port}')"
+        echo "[${site_name}] [ERROR] Failed to allocate Ray tunnel port (got: '${tunnel_ray_raw}')"
         return 1
     fi
 
