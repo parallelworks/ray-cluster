@@ -126,19 +126,6 @@ echo "Dashboard:     localhost:${DASHBOARD_PORT}"
 echo "Ray head:      ${RAY_HEAD_IP}:${RAY_PORT}"
 echo "Python:        ${PYTHON_VERSION}"
 echo "Ray version:   ${RAY_VERSION}"
-echo ""
-echo "PW auth debug:"
-echo "  PW_USER=${PW_USER:-<unset>}"
-echo "  PW_API_KEY=${PW_API_KEY:+set (${#PW_API_KEY} chars)}"
-echo "  PW_API_KEY=${PW_API_KEY:-<unset>}"
-echo "  PW_PLATFORM_HOST=${PW_PLATFORM_HOST:-<unset>}"
-echo "  PW_KEY=${PW_KEY:-<unset>}"
-echo "  ACTIVATE_API_KEY=${ACTIVATE_API_KEY:+set (${#ACTIVATE_API_KEY} chars)}"
-echo "  ACTIVATE_API_KEY=${ACTIVATE_API_KEY:-<unset>}"
-# Print all PW/ACTIVATE env vars (names only, not values)
-env | grep -iE '^(PW_|ACTIVATE_)' | sed 's/=.*/=.../' | sort || true
-echo "  pw auth whoami: $(${PW_CMD} auth whoami 2>&1 || true)"
-echo "  pw cluster list: $(${PW_CMD} cluster list 2>&1 | head -5 || true)"
 
 if [ "${NUM_WORKERS}" -eq 0 ]; then
     echo ""
@@ -487,21 +474,22 @@ dispatch_worker() {
     local site_index=$1
     local site_name=$2
     local site_ip=$3
-    local use_scheduler=$4
-    local scheduler_type=$5
-    local slurm_partition=$6
-    local slurm_account=$7
-    local slurm_qos=$8
-    local slurm_time=$9
-    local slurm_nodes=${10}
-    local slurm_gres=${11}
-    local slurm_directives=${12}
-    local pbs_queue=${13}
-    local pbs_account=${14}
-    local pbs_nodes=${15}
-    local pbs_select=${16}
-    local pbs_walltime=${17}
-    local pbs_directives=${18}
+    local site_user=$4
+    local use_scheduler=$5
+    local scheduler_type=$6
+    local slurm_partition=$7
+    local slurm_account=$8
+    local slurm_qos=$9
+    local slurm_time=${10}
+    local slurm_nodes=${11}
+    local slurm_gres=${12}
+    local slurm_directives=${13}
+    local pbs_queue=${14}
+    local pbs_account=${15}
+    local pbs_nodes=${16}
+    local pbs_select=${17}
+    local pbs_walltime=${18}
+    local pbs_directives=${19}
 
     local site_id="site-$((site_index + 1))"
     local dispatch_mode="ssh"
@@ -555,12 +543,18 @@ dispatch_worker() {
 
     # Determine SSH connectivity mode: pw proxy (by name) or direct (by IP)
     local SSH_MODE="pw"
-    local SSH_TARGET="${site_name}"
+    # Use full pw:// path (pw://owner/cluster) so pw ssh works for shared clusters
+    local pw_ssh_target="${site_name}"
+    if [ -n "${site_user}" ]; then
+        pw_ssh_target="${site_user}/${site_name}"
+    fi
+    local SSH_TARGET="${pw_ssh_target}"
     local PORT_ALLOC_CMD='python3 -c "import socket; s=socket.socket(); s.bind((\"\",0)); print(s.getsockname()[1]); s.close()"'
 
     # Test pw ssh connectivity first
+    echo "[${site_name}] Testing pw ssh ${pw_ssh_target}..."
     local pw_test
-    pw_test=$(${PW_CMD} ssh "${site_name}" 'echo ok' 2>&1) || true
+    pw_test=$(${PW_CMD} ssh "${pw_ssh_target}" 'echo ok' 2>&1) || true
     if [ "${pw_test}" != "ok" ]; then
         echo "[${site_name}] pw ssh not available (${pw_test})"
         if [ -n "${site_ip}" ]; then
@@ -574,7 +568,9 @@ dispatch_worker() {
     fi
 
     # Build base SSH args depending on mode
+    # SSH login user is always PW_USER (site_user is the cluster owner, used for pw:// path)
     local SSH_BASE_ARGS=()
+    local SSH_LOGIN_USER="${PW_USER}"
     if [ "${SSH_MODE}" = "pw" ]; then
         SSH_BASE_ARGS=(
             -i ~/.ssh/pwcli
@@ -596,7 +592,7 @@ dispatch_worker() {
     # Note: || true prevents set -e from killing background dispatch on ssh failure
     # Use tail -1 to grab the port number (last line) — MOTD banners may precede it
     local tunnel_dashboard_port tunnel_dashboard_raw
-    tunnel_dashboard_raw=$(ssh "${SSH_BASE_ARGS[@]}" "${PW_USER}@${SSH_TARGET}" "${PORT_ALLOC_CMD}" 2>/dev/null) || true
+    tunnel_dashboard_raw=$(ssh "${SSH_BASE_ARGS[@]}" "${SSH_LOGIN_USER}@${SSH_TARGET}" "${PORT_ALLOC_CMD}" 2>/dev/null) || true
     tunnel_dashboard_port=$(echo "${tunnel_dashboard_raw}" | tail -1 | tr -d '[:space:]')
 
     if [ -z "${tunnel_dashboard_port}" ] || ! [[ "${tunnel_dashboard_port}" =~ ^[0-9]+$ ]]; then
@@ -605,7 +601,7 @@ dispatch_worker() {
     fi
 
     local tunnel_ray_port tunnel_ray_raw
-    tunnel_ray_raw=$(ssh "${SSH_BASE_ARGS[@]}" "${PW_USER}@${SSH_TARGET}" "${PORT_ALLOC_CMD}" 2>/dev/null) || true
+    tunnel_ray_raw=$(ssh "${SSH_BASE_ARGS[@]}" "${SSH_LOGIN_USER}@${SSH_TARGET}" "${PORT_ALLOC_CMD}" 2>/dev/null) || true
     tunnel_ray_port=$(echo "${tunnel_ray_raw}" | tail -1 | tr -d '[:space:]')
 
     if [ -z "${tunnel_ray_port}" ] || ! [[ "${tunnel_ray_port}" =~ ^[0-9]+$ ]]; then
@@ -1914,7 +1910,7 @@ WORKER_SCRIPT
     # Pipe script via stdin to avoid quoting issues with SSH command strings
     echo "[${site_name}] Connecting via SSH (${SSH_MODE} mode, target: ${SSH_TARGET})..."
     set -o pipefail
-    ssh "${SSH_ARGS[@]}" "${PW_USER}@${SSH_TARGET}" 'bash -s' < "${script_file}" 2>&1 | \
+    ssh "${SSH_ARGS[@]}" "${SSH_LOGIN_USER}@${SSH_TARGET}" 'bash -s' < "${script_file}" 2>&1 | \
         sed -u "s/^/[${site_name}] /"
     local ssh_exit=$?
     set +o pipefail
@@ -1940,6 +1936,7 @@ remote_site_index=$((2 + SITE_INDEX_OFFSET))
 for i in $(seq 0 $((NUM_WORKERS - 1))); do
     site_name=$(echo "${SITES_JSON}" | ${PYTHON_CMD} -c "import sys,json;print(json.load(sys.stdin)[${i}]['name'])")
     site_ip=$(echo "${SITES_JSON}" | ${PYTHON_CMD} -c "import sys,json;print(json.load(sys.stdin)[${i}]['ip'])")
+    site_user=$(echo "${SITES_JSON}" | ${PYTHON_CMD} -c "import sys,json;print(json.load(sys.stdin)[${i}].get('user',''))")
     is_local=$(echo "${SITES_JSON}" | ${PYTHON_CMD} -c "import sys,json;print(str(json.load(sys.stdin)[${i}].get('is_local',False)).lower())")
     use_scheduler=$(echo "${SITES_JSON}" | ${PYTHON_CMD} -c "import sys,json;print(str(json.load(sys.stdin)[${i}].get('use_scheduler',False)).lower())")
     scheduler_type=$(echo "${SITES_JSON}" | ${PYTHON_CMD} -c "import sys,json;print(json.load(sys.stdin)[${i}].get('scheduler_type',''))")
@@ -1991,7 +1988,7 @@ for i in $(seq 0 $((NUM_WORKERS - 1))); do
             -d "{\"site_id\": \"site-${remote_site_index}\", \"cluster_name\": \"${site_name}\", \"scheduler_type\": \"${scheduler_type}\"}" 2>&1) \
             || echo "[site-${remote_site_index}] Warning: pending notification failed: ${pending_resp}"
         echo "[site-${remote_site_index}] Pending notification: ${pending_resp}"
-        dispatch_worker "$((remote_site_index - 1))" "${site_name}" "${site_ip}" \
+        dispatch_worker "$((remote_site_index - 1))" "${site_name}" "${site_ip}" "${site_user}" \
             "${use_scheduler}" "${scheduler_type}" \
             "${slurm_partition}" "${slurm_account}" "${slurm_qos}" "${slurm_time}" \
             "${slurm_nodes}" "${slurm_gres}" "${slurm_directives}" \
