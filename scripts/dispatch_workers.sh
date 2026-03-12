@@ -20,7 +20,10 @@ set -e
 JOB_DIR="${PW_PARENT_JOB_DIR%/}"
 SCRIPT_DIR="${JOB_DIR}/scripts"
 WORK_DIR=$(mktemp -d)
-trap "rm -rf ${WORK_DIR}" EXIT
+# In fire-and-forget mode, background processes need WORK_DIR after script exits
+if [ "${DISPATCH_AND_EXIT:-false}" != "true" ]; then
+    trap "rm -rf ${WORK_DIR}" EXIT
+fi
 
 RAY_PORT=6379
 RAY_VERSION="${RAY_VERSION:-2.40.0}"
@@ -556,7 +559,9 @@ dispatch_worker() {
     echo "[${site_name}] Testing pw ssh ${pw_ssh_target}..."
     local pw_test
     pw_test=$(${PW_CMD} ssh "${pw_ssh_target}" 'echo ok' 2>&1) || true
-    if [ "${pw_test}" != "ok" ]; then
+    # Check if first line is "ok" (pw CLI may append upgrade notices)
+    pw_test_first=$(echo "${pw_test}" | head -1)
+    if [ "${pw_test_first}" != "ok" ]; then
         echo "[${site_name}] pw ssh not available (${pw_test})"
         if [ -n "${site_ip}" ]; then
             echo "[${site_name}] Falling back to direct SSH via ${site_ip}"
