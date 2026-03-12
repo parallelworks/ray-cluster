@@ -776,8 +776,10 @@ if [ "\${RAY_REACHABLE}" != "true" ]; then
     LOCAL_RAY_PORT=\$(python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()")
     LOCAL_DASH_PORT=\$(python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()")
 
-    # Resolve login host to IP (short hostnames may not resolve on compute nodes)
-    LOGIN_IP=\$(python3 -c "
+    # Use pre-resolved login IP (resolved on login node where DNS works)
+    # Fall back to runtime resolution if LOGIN_IP wasn't set
+    if [ -z "\${LOGIN_IP:-}" ]; then
+        LOGIN_IP=\$(python3 -c "
 import socket
 for host in ['\${LOGIN_HOST}', '\${LOGIN_HOST_FQDN:-}']:
     if host:
@@ -789,19 +791,22 @@ for host in ['\${LOGIN_HOST}', '\${LOGIN_HOST_FQDN:-}']:
 else:
     print('\${LOGIN_HOST}')
 " 2>/dev/null)
+    fi
+    echo "SSH tunnel target: \${LOGIN_IP}"
 
     ssh -F /dev/null -f -N -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
         -L "\${LOCAL_RAY_PORT}:127.0.0.1:\${PROXY_RAY_PORT}" \
         -L "\${LOCAL_DASH_PORT}:127.0.0.1:\${PROXY_DASH_PORT}" \
-        "\${LOGIN_IP}" 2>/dev/null
+        "\${LOGIN_IP}" 2>&1
+    SSH_RC=\$?
 
-    if [ \$? -eq 0 ]; then
+    if [ \${SSH_RC} -eq 0 ]; then
         echo "SSH tunnel established: localhost:\${LOCAL_RAY_PORT} -> \${LOGIN_HOST}:\${PROXY_RAY_PORT}"
         RAY_CONNECT_HOST="127.0.0.1"
         PROXY_RAY_PORT=\${LOCAL_RAY_PORT}
         PROXY_DASH_PORT=\${LOCAL_DASH_PORT}
     else
-        echo "SSH tunnel failed — will keep trying direct connection"
+        echo "SSH tunnel failed (exit \${SSH_RC}) — will keep trying direct connection"
     fi
 
     # Wait for connection (up to 5 minutes)
@@ -926,6 +931,10 @@ chmod +x "\${WORK}/srun_task.sh"
 echo "\${LOGIN_HOST}" > "\${WORK}/login_host"
 echo "\${PROXY_RAY_PORT}" > "\${WORK}/proxy_ray_port"
 echo "\${PROXY_DASH_PORT}" > "\${WORK}/proxy_dash_port"
+# Resolve login IP on the login node (compute nodes may lack DNS for login hostnames)
+LOGIN_IP_RESOLVED=\$(python3 -c "import socket; print(socket.gethostbyname('\$(hostname -f)'))" 2>/dev/null || hostname -I | awk '{print \$1}')
+echo "\${LOGIN_IP_RESOLVED}" > "\${WORK}/login_ip"
+echo "Login IP resolved: \${LOGIN_IP_RESOLVED}"
 
 # Write sbatch wrapper script that launches srun internally
 cat > "\${WORK}/sbatch_wrapper.sh" <<SBATCH_WRAP_EOF
@@ -941,6 +950,7 @@ export WORK_DIR="\${WORK}"
 export LOGIN_HOST=\\\$(cat "\${WORK}/login_host")
 export PROXY_RAY_PORT=\\\$(cat "\${WORK}/proxy_ray_port")
 export PROXY_DASH_PORT=\\\$(cat "\${WORK}/proxy_dash_port")
+export LOGIN_IP=\\\$(cat "\${WORK}/login_ip" 2>/dev/null || echo "")
 export EXPECTED_CLUSTER_NAME="${site_name}"
 export EXPECTED_SITE_ID="${site_id}"
 
@@ -1329,8 +1339,10 @@ if [ "\${RAY_REACHABLE}" != "true" ]; then
     LOCAL_RAY_PORT=\$(python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()")
     LOCAL_DASH_PORT=\$(python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()")
 
-    # Resolve login host to IP (short hostnames may not resolve on compute nodes)
-    LOGIN_IP=\$(python3 -c "
+    # Use pre-resolved login IP (resolved on login node where DNS works)
+    # Fall back to runtime resolution if LOGIN_IP wasn't set
+    if [ -z "\${LOGIN_IP:-}" ]; then
+        LOGIN_IP=\$(python3 -c "
 import socket
 for host in ['\${LOGIN_HOST}', '\${LOGIN_HOST_FQDN:-}']:
     if host:
@@ -1342,19 +1354,22 @@ for host in ['\${LOGIN_HOST}', '\${LOGIN_HOST_FQDN:-}']:
 else:
     print('\${LOGIN_HOST}')
 " 2>/dev/null)
+    fi
+    echo "SSH tunnel target: \${LOGIN_IP}"
 
     ssh -F /dev/null -f -N -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
         -L "\${LOCAL_RAY_PORT}:127.0.0.1:\${PROXY_RAY_PORT}" \
         -L "\${LOCAL_DASH_PORT}:127.0.0.1:\${PROXY_DASH_PORT}" \
-        "\${LOGIN_IP}" 2>/dev/null
+        "\${LOGIN_IP}" 2>&1
+    SSH_RC=\$?
 
-    if [ \$? -eq 0 ]; then
+    if [ \${SSH_RC} -eq 0 ]; then
         echo "SSH tunnel established: localhost:\${LOCAL_RAY_PORT} -> \${LOGIN_HOST}:\${PROXY_RAY_PORT}"
         RAY_CONNECT_HOST="127.0.0.1"
         PROXY_RAY_PORT=\${LOCAL_RAY_PORT}
         PROXY_DASH_PORT=\${LOCAL_DASH_PORT}
     else
-        echo "SSH tunnel failed — will keep trying direct connection"
+        echo "SSH tunnel failed (exit \${SSH_RC}) — will keep trying direct connection"
     fi
 
     # Wait for connection (up to 5 minutes)
@@ -1476,6 +1491,7 @@ ${pbs_extra_directives}
 export WORK_DIR=\${WORK}
 export LOGIN_HOST=\${LOGIN_HOST}
 export LOGIN_HOST_FQDN=\${LOGIN_HOST_FQDN:-\${LOGIN_HOST}}
+export LOGIN_IP=\$(python3 -c "import socket; print(socket.gethostbyname('\$(hostname -f)'))" 2>/dev/null || hostname -I | awk '{print \$1}')
 export PROXY_RAY_PORT=\${PROXY_RAY_PORT}
 export PROXY_DASH_PORT=\${PROXY_DASH_PORT}
 export EXPECTED_CLUSTER_NAME="${site_name}"
@@ -1495,6 +1511,7 @@ cat > "\${WORK_DIR}/pbs_env.sh" <<ENV_EOF
 export WORK_DIR="\${WORK_DIR}"
 export LOGIN_HOST="\${LOGIN_HOST}"
 export LOGIN_HOST_FQDN="\${LOGIN_HOST_FQDN:-\${LOGIN_HOST}}"
+export LOGIN_IP="\${LOGIN_IP}"
 export PROXY_RAY_PORT="\${PROXY_RAY_PORT}"
 export PROXY_DASH_PORT="\${PROXY_DASH_PORT}"
 export EXPECTED_CLUSTER_NAME="\${EXPECTED_CLUSTER_NAME}"
