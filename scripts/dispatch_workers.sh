@@ -1425,6 +1425,16 @@ ray stop --force 2>/dev/null || true
 rm -rf /tmp/ray/session_* 2>/dev/null || true
 sleep 1
 
+# Detect GPUs — respect PBS/scheduler allocation
+NUM_GPUS=0
+if [ -n "\${CUDA_VISIBLE_DEVICES:-}" ]; then
+    NUM_GPUS=\$(echo "\${CUDA_VISIBLE_DEVICES}" | tr ',' '\n' | grep -c .)
+    echo "Detected \${NUM_GPUS} GPU(s) (from CUDA_VISIBLE_DEVICES=\${CUDA_VISIBLE_DEVICES})"
+elif [ -z "\${PBS_JOBID:-}" ] && command -v nvidia-smi &>/dev/null; then
+    GPU_LIST=\$(nvidia-smi -L 2>/dev/null) && NUM_GPUS=\$(echo "\${GPU_LIST}" | grep -c "^GPU ")
+    [ "\${NUM_GPUS}" -gt 0 ] && echo "Detected \${NUM_GPUS} GPU(s)"
+fi
+
 echo "Starting Ray worker: address=\${LOGIN_HOST}:\${PROXY_RAY_PORT} ip=\${MY_TUNNEL_IP}"
 RAY_ARGS="--address=\${LOGIN_HOST}:\${PROXY_RAY_PORT}"
 RAY_ARGS="\${RAY_ARGS} --node-ip-address=\${MY_TUNNEL_IP}"
@@ -1433,6 +1443,9 @@ RAY_ARGS="\${RAY_ARGS} --object-manager-port=\${MY_OBJ_PORT}"
 RAY_ARGS="\${RAY_ARGS} --min-worker-port=\${MY_MIN_PORT}"
 RAY_ARGS="\${RAY_ARGS} --max-worker-port=\${MY_MAX_PORT}"
 RAY_ARGS="\${RAY_ARGS} --num-cpus=1"
+if [ "\${NUM_GPUS}" -gt 0 ]; then
+    RAY_ARGS="\${RAY_ARGS} --num-gpus=\${NUM_GPUS}"
+fi
 ray start \${RAY_ARGS}
 
 echo "Ray worker started on node \${PROC_ID} (\${NODE_HOST})"
@@ -1478,6 +1491,7 @@ curl -s -X POST "\${DASHBOARD_URL}/api/worker" \
         \"site_id\": \"\${EXPECTED_SITE_ID:-\${MY_SITE_ID}}\",
         \"worker_ip\": \"\${MY_TUNNEL_IP}\",
         \"num_cpus\": 1,
+        \"num_gpus\": \${NUM_GPUS},
         \"cluster_name\": \"\${CLUSTER_NAME}\",
         \"scheduler_type\": \"\${SCHED_TYPE}\"
     }" 2>/dev/null || echo "Note: Could not notify dashboard"
