@@ -242,6 +242,25 @@ async def _poll_ray_api():
                                 changed = True
 
                 state["ray_cluster_nodes"] = ray_info
+
+                # Remove dead nodes from topology — align with Ray's view
+                alive_ips = {n["ip"] for n in ray_info if n["alive"] and not n["is_head"]}
+                dead_ips = [ip for ip in state["nodes"] if ip not in alive_ips]
+                for ip in dead_ips:
+                    node_data = state["nodes"].pop(ip)
+                    site_id = node_data.get("site_id", "")
+                    # Update site_stats
+                    if site_id in state["site_stats"]:
+                        stats = state["site_stats"][site_id]
+                        if ip in stats.get("node_ips", []):
+                            stats["node_ips"].remove(ip)
+                        stats["num_workers"] = max(0, stats.get("num_workers", 1) - 1)
+                        # Remove site entirely if no workers left
+                        if stats["num_workers"] <= 0 and not stats.get("node_ips"):
+                            del state["site_stats"][site_id]
+                    _poll_log.info(f"Removed dead node {ip} (site: {site_id})")
+                    changed = True
+
                 if not logged_first and ray_info:
                     _poll_log.info(f"Ray poll: {len(ray_info)} nodes, sample keys: {list(nodes_summary[0].keys()) if nodes_summary else []}")
 
