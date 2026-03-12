@@ -1149,7 +1149,9 @@ function drawTopology() {
   const connectedIds = Object.keys(siteStats);
   const pendingIds = Object.keys(pendingSites).filter(sid => !siteStats[sid]);
   const siteIds = [...connectedIds, ...pendingIds];
-  if (siteIds.length === 0) {
+  const hasHead = headNode.ip || rayHeadIp;
+
+  if (siteIds.length === 0 && !hasHead) {
     g.fillStyle = '#6b7a90';
     g.font = '13px Inter, system-ui, sans-serif';
     g.textAlign = 'center';
@@ -1157,9 +1159,10 @@ function drawTopology() {
     return;
   }
 
-  // Draw head node hub at center-top
-  const cx = w / 2, cy = 44;
-  const hubRadius = 28;
+  // Draw head node hub — centered vertically if no workers, at top otherwise
+  const cx = w / 2;
+  const cy = siteIds.length === 0 ? h / 2 - 20 : 44;
+  const hubRadius = siteIds.length === 0 ? 36 : 28;
   g.beginPath();
   g.arc(cx, cy, hubRadius, 0, Math.PI * 2);
   g.fillStyle = '#22d3ee12';
@@ -1172,13 +1175,37 @@ function drawTopology() {
   const headName = (headNode.cluster_name || 'RAY HEAD');
   const shortHead = headName.length > 18 ? headName.slice(0, 17) + '\u2026' : headName;
   g.fillStyle = '#22d3ee';
-  g.font = 'bold 9px Inter, system-ui, sans-serif';
+  g.font = siteIds.length === 0 ? 'bold 11px Inter, system-ui, sans-serif' : 'bold 9px Inter, system-ui, sans-serif';
   g.textAlign = 'center';
   g.textBaseline = 'middle';
-  g.fillText(shortHead, cx, cy - 6);
+  g.fillText(shortHead, cx, cy - (siteIds.length === 0 ? 10 : 6));
   g.fillStyle = '#6b7a90';
-  g.font = '8px Inter, system-ui, sans-serif';
-  g.fillText('coordinator', cx, cy + 7);
+  g.font = siteIds.length === 0 ? '9px Inter, system-ui, sans-serif' : '8px Inter, system-ui, sans-serif';
+  g.fillText('coordinator', cx, cy + (siteIds.length === 0 ? 4 : 7));
+
+  // Show head node details (from Ray API) when no workers
+  if (siteIds.length === 0) {
+    const headState = headNode.state || 'ALIVE';
+    const headCpus = headNode.num_cpus != null ? headNode.num_cpus : '?';
+    const headGpus = headNode.num_gpus || 0;
+    const headIpStr = headNode.ip || rayHeadIp || '';
+
+    g.fillStyle = '#22d3ee88';
+    g.font = '9px Inter, system-ui, sans-serif';
+    let infoY = cy + hubRadius + 20;
+    g.fillText(headState + (headIpStr ? '  \u00b7  ' + headIpStr : ''), cx, infoY);
+    infoY += 16;
+    const resLabel = headCpus + ' CPU' + (headGpus > 0 ? ', ' + headGpus + ' GPU' : '') + '  \u00b7  --num-cpus=0';
+    g.fillText(resLabel, cx, infoY);
+    infoY += 22;
+    g.fillStyle = '#6b7a90';
+    g.font = '11px Inter, system-ui, sans-serif';
+    g.fillText('No worker sites connected', cx, infoY);
+    infoY += 16;
+    g.font = '10px Inter, system-ui, sans-serif';
+    g.fillText('Add workers via workflow or add_worker.yaml', cx, infoY);
+    return;
+  }
 
   // Position site nodes below hub
   const siteSpacing = Math.min(200, (w - 80) / siteIds.length);
@@ -1869,6 +1896,12 @@ function connect() {
       else if (msg.result_type === 'scaling') scalingResults = msg.data;
       updateStats();
     } else if (msg.type === 'ray_cluster') {
+      if (msg.head_node) {
+        headNode = msg.head_node;
+        if (headNode.ip) rayHeadIp = headNode.ip;
+        if (activeTab === 'cluster') drawTopology();
+        updateClusterOnlyInfo();
+      }
       renderRayClusterActivity(msg.ray_cluster_nodes || [], msg.ray_jobs || []);
       // Update task counts from Ray Tasks API (individual @ray.remote invocations)
       if (msg.ray_task_counts && msg.ray_task_counts.total > 0) {

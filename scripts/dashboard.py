@@ -243,6 +243,23 @@ async def _poll_ray_api():
 
                 state["ray_cluster_nodes"] = ray_info
 
+                # Sync head node data from Ray API (authoritative source)
+                for n in ray_info:
+                    if n["is_head"] and n["alive"]:
+                        head = state["head_node"]
+                        if head.get("ip") and n["ip"] != head["ip"]:
+                            # Head IP from Ray may differ (e.g. tunnel IP vs real IP)
+                            pass
+                        else:
+                            if not head.get("ip"):
+                                head["ip"] = n["ip"]
+                            head["num_cpus"] = n["cpus"]
+                            head["num_gpus"] = n["gpus"]
+                            head["hostname"] = n["hostname"]
+                            head["state"] = n["state"]
+                            head["node_id"] = n["node_id"]
+                        break
+
                 # Remove dead nodes from topology — align with Ray's view
                 alive_ips = {n["ip"] for n in ray_info if n["alive"] and not n["is_head"]}
                 dead_ips = [ip for ip in state["nodes"] if ip not in alive_ips]
@@ -507,6 +524,7 @@ async def _poll_ray_api():
                 "ray_cluster_nodes": state.get("ray_cluster_nodes", []),
                 "ray_jobs": state.get("ray_jobs", []),
                 "ray_task_counts": state.get("_ray_task_counts", {}),
+                "head_node": state["head_node"],
             })
         except Exception as e:
             _poll_log.warning(f"Ray API poll error: {e}", exc_info=True)
