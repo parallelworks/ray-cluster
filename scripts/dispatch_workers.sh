@@ -657,6 +657,7 @@ fi
 
 # Use short hostname for LOGIN_HOST — compute nodes often can't resolve FQDNs
 LOGIN_HOST=\$(hostname -s)
+LOGIN_HOST_FQDN=\$(hostname -f 2>/dev/null || hostname)
 NUM_NODES=${num_nodes}
 
 # Kill stale proxy processes from prior cancelled runs
@@ -743,15 +744,17 @@ if [ -f "\${RAY_VENV}/bin/activate" ]; then
     source "\${RAY_VENV}/bin/activate"
 fi
 
-# Wait for Ray GCS (up to 5 minutes — head may still be installing)
+# Wait for Ray GCS — try direct connection first, fall back to SSH tunnel
 echo "Waiting for Ray head at \${LOGIN_HOST}:\${PROXY_RAY_PORT}... (\$(date))"
 RAY_REACHABLE=false
-attempt=0
-while [ \${attempt} -le 150 ]; do
+RAY_CONNECT_HOST="\${LOGIN_HOST}"
+
+# Quick test: can we reach the login node proxy directly? (10s)
+for _try in 1 2 3 4 5; do
     if python3 -c "
 import socket, sys
 s = socket.socket()
-s.settimeout(3)
+s.settimeout(2)
 try:
     s.connect(('\${LOGIN_HOST}', \${PROXY_RAY_PORT}))
     s.close()
@@ -759,20 +762,80 @@ try:
 except Exception:
     sys.exit(1)
 " 2>/dev/null; then
-        echo "Ray head reachable! (\$(date))"
+        echo "Direct connection to \${LOGIN_HOST}:\${PROXY_RAY_PORT} works"
         RAY_REACHABLE=true
         break
     fi
-    [ \$((attempt % 15)) -eq 0 ] && [ \${attempt} -gt 0 ] && echo "  Still waiting for Ray head... (\$((attempt * 2))s elapsed)"
-    sleep 2
-    attempt=\$((attempt + 1))
+    sleep 1
 done
 
+# Fallback: SSH tunnel from compute node to login node
 if [ "\${RAY_REACHABLE}" != "true" ]; then
-    echo "[ERROR] Cannot reach Ray head at \${LOGIN_HOST}:\${PROXY_RAY_PORT} after 300s"
+    echo "Direct connection failed — trying SSH tunnel to login node..."
+    # Find a free local port for the tunnel
+    LOCAL_RAY_PORT=\$(python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()")
+    LOCAL_DASH_PORT=\$(python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()")
+
+    # Resolve login host to IP (short hostnames may not resolve on compute nodes)
+    LOGIN_IP=\$(python3 -c "
+import socket
+for host in ['\${LOGIN_HOST}', '\${LOGIN_HOST_FQDN:-}']:
+    if host:
+        try:
+            print(socket.gethostbyname(host))
+            break
+        except socket.gaierror:
+            pass
+else:
+    print('\${LOGIN_HOST}')
+" 2>/dev/null)
+
+    ssh -F /dev/null -f -N -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+        -L "\${LOCAL_RAY_PORT}:127.0.0.1:\${PROXY_RAY_PORT}" \
+        -L "\${LOCAL_DASH_PORT}:127.0.0.1:\${PROXY_DASH_PORT}" \
+        "\${LOGIN_IP}" 2>/dev/null
+
+    if [ \$? -eq 0 ]; then
+        echo "SSH tunnel established: localhost:\${LOCAL_RAY_PORT} -> \${LOGIN_HOST}:\${PROXY_RAY_PORT}"
+        RAY_CONNECT_HOST="127.0.0.1"
+        PROXY_RAY_PORT=\${LOCAL_RAY_PORT}
+        PROXY_DASH_PORT=\${LOCAL_DASH_PORT}
+    else
+        echo "SSH tunnel failed — will keep trying direct connection"
+    fi
+
+    # Wait for connection (up to 5 minutes)
+    attempt=0
+    while [ \${attempt} -le 150 ]; do
+        if python3 -c "
+import socket, sys
+s = socket.socket()
+s.settimeout(3)
+try:
+    s.connect(('\${RAY_CONNECT_HOST}', \${PROXY_RAY_PORT}))
+    s.close()
+    sys.exit(0)
+except Exception:
+    sys.exit(1)
+" 2>/dev/null; then
+            echo "Ray head reachable! (\$(date))"
+            RAY_REACHABLE=true
+            break
+        fi
+        [ \$((attempt % 15)) -eq 0 ] && [ \${attempt} -gt 0 ] && echo "  Still waiting for Ray head... (\$((attempt * 2))s elapsed)"
+        sleep 2
+        attempt=\$((attempt + 1))
+    done
+fi
+
+if [ "\${RAY_REACHABLE}" != "true" ]; then
+    echo "[ERROR] Cannot reach Ray head at \${RAY_CONNECT_HOST}:\${PROXY_RAY_PORT} after 300s"
     echo "  Check that the pw ssh tunnel to the head node is working."
     exit 1
 fi
+
+# Update LOGIN_HOST for downstream use (Ray worker address, dashboard URL)
+LOGIN_HOST="\${RAY_CONNECT_HOST}"
 
 ray stop --force 2>/dev/null || true
 rm -rf /tmp/ray/session_* 2>/dev/null || true
@@ -1087,6 +1150,7 @@ fi
 
 # Use short hostname for LOGIN_HOST — compute nodes often can't resolve FQDNs
 LOGIN_HOST=\$(hostname -s)
+LOGIN_HOST_FQDN=\$(hostname -f 2>/dev/null || hostname)
 NUM_NODES=${num_nodes}
 
 # Kill stale proxy processes from prior cancelled runs
@@ -1233,15 +1297,17 @@ if [ -f "\${RAY_VENV}/bin/activate" ]; then
     source "\${RAY_VENV}/bin/activate"
 fi
 
-# Wait for Ray GCS (up to 5 minutes — head may still be installing)
+# Wait for Ray GCS — try direct connection first, fall back to SSH tunnel
 echo "Waiting for Ray head at \${LOGIN_HOST}:\${PROXY_RAY_PORT}... (\$(date))"
 RAY_REACHABLE=false
-attempt=0
-while [ \${attempt} -le 150 ]; do
+RAY_CONNECT_HOST="\${LOGIN_HOST}"
+
+# Quick test: can we reach the login node proxy directly? (10s)
+for _try in 1 2 3 4 5; do
     if python3 -c "
 import socket, sys
 s = socket.socket()
-s.settimeout(3)
+s.settimeout(2)
 try:
     s.connect(('\${LOGIN_HOST}', \${PROXY_RAY_PORT}))
     s.close()
@@ -1249,20 +1315,80 @@ try:
 except Exception:
     sys.exit(1)
 " 2>/dev/null; then
-        echo "Ray head reachable! (\$(date))"
+        echo "Direct connection to \${LOGIN_HOST}:\${PROXY_RAY_PORT} works"
         RAY_REACHABLE=true
         break
     fi
-    [ \$((attempt % 15)) -eq 0 ] && [ \${attempt} -gt 0 ] && echo "  Still waiting for Ray head... (\$((attempt * 2))s elapsed)"
-    sleep 2
-    attempt=\$((attempt + 1))
+    sleep 1
 done
 
+# Fallback: SSH tunnel from compute node to login node
 if [ "\${RAY_REACHABLE}" != "true" ]; then
-    echo "[ERROR] Cannot reach Ray head at \${LOGIN_HOST}:\${PROXY_RAY_PORT} after 300s"
+    echo "Direct connection failed — trying SSH tunnel to login node..."
+    # Find a free local port for the tunnel
+    LOCAL_RAY_PORT=\$(python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()")
+    LOCAL_DASH_PORT=\$(python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()")
+
+    # Resolve login host to IP (short hostnames may not resolve on compute nodes)
+    LOGIN_IP=\$(python3 -c "
+import socket
+for host in ['\${LOGIN_HOST}', '\${LOGIN_HOST_FQDN:-}']:
+    if host:
+        try:
+            print(socket.gethostbyname(host))
+            break
+        except socket.gaierror:
+            pass
+else:
+    print('\${LOGIN_HOST}')
+" 2>/dev/null)
+
+    ssh -F /dev/null -f -N -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+        -L "\${LOCAL_RAY_PORT}:127.0.0.1:\${PROXY_RAY_PORT}" \
+        -L "\${LOCAL_DASH_PORT}:127.0.0.1:\${PROXY_DASH_PORT}" \
+        "\${LOGIN_IP}" 2>/dev/null
+
+    if [ \$? -eq 0 ]; then
+        echo "SSH tunnel established: localhost:\${LOCAL_RAY_PORT} -> \${LOGIN_HOST}:\${PROXY_RAY_PORT}"
+        RAY_CONNECT_HOST="127.0.0.1"
+        PROXY_RAY_PORT=\${LOCAL_RAY_PORT}
+        PROXY_DASH_PORT=\${LOCAL_DASH_PORT}
+    else
+        echo "SSH tunnel failed — will keep trying direct connection"
+    fi
+
+    # Wait for connection (up to 5 minutes)
+    attempt=0
+    while [ \${attempt} -le 150 ]; do
+        if python3 -c "
+import socket, sys
+s = socket.socket()
+s.settimeout(3)
+try:
+    s.connect(('\${RAY_CONNECT_HOST}', \${PROXY_RAY_PORT}))
+    s.close()
+    sys.exit(0)
+except Exception:
+    sys.exit(1)
+" 2>/dev/null; then
+            echo "Ray head reachable! (\$(date))"
+            RAY_REACHABLE=true
+            break
+        fi
+        [ \$((attempt % 15)) -eq 0 ] && [ \${attempt} -gt 0 ] && echo "  Still waiting for Ray head... (\$((attempt * 2))s elapsed)"
+        sleep 2
+        attempt=\$((attempt + 1))
+    done
+fi
+
+if [ "\${RAY_REACHABLE}" != "true" ]; then
+    echo "[ERROR] Cannot reach Ray head at \${RAY_CONNECT_HOST}:\${PROXY_RAY_PORT} after 300s"
     echo "  Check that the pw ssh tunnel to the head node is working."
     exit 1
 fi
+
+# Update LOGIN_HOST for downstream use (Ray worker address, dashboard URL)
+LOGIN_HOST="\${RAY_CONNECT_HOST}"
 
 ray stop --force 2>/dev/null || true
 rm -rf /tmp/ray/session_* 2>/dev/null || true
@@ -1349,6 +1475,7 @@ ${pbs_extra_directives}
 
 export WORK_DIR=\${WORK}
 export LOGIN_HOST=\${LOGIN_HOST}
+export LOGIN_HOST_FQDN=\${LOGIN_HOST_FQDN:-\${LOGIN_HOST}}
 export PROXY_RAY_PORT=\${PROXY_RAY_PORT}
 export PROXY_DASH_PORT=\${PROXY_DASH_PORT}
 export EXPECTED_CLUSTER_NAME="${site_name}"
@@ -1367,6 +1494,7 @@ cat >> "\${WORK}/pbs_job.pbs" <<'PBS_BODY'
 cat > "\${WORK_DIR}/pbs_env.sh" <<ENV_EOF
 export WORK_DIR="\${WORK_DIR}"
 export LOGIN_HOST="\${LOGIN_HOST}"
+export LOGIN_HOST_FQDN="\${LOGIN_HOST_FQDN:-\${LOGIN_HOST}}"
 export PROXY_RAY_PORT="\${PROXY_RAY_PORT}"
 export PROXY_DASH_PORT="\${PROXY_DASH_PORT}"
 export EXPECTED_CLUSTER_NAME="\${EXPECTED_CLUSTER_NAME}"
