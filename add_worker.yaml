@@ -166,6 +166,8 @@ jobs:
 
           export WORKERS_JSON='${{ inputs.workers }}'
           export PW_USER="${PW_USER}"
+          export DASHBOARD_PORT="${{ needs.validate_cluster.outputs.SESSION_PORT }}"
+          export SITE_INDEX_OFFSET="${{ needs.validate_cluster.outputs.SITE_INDEX_OFFSET }}"
           export PW_CMD=""
           for try_cmd in pw ~/pw/pw; do
             command -v ${try_cmd} &>/dev/null && { PW_CMD=${try_cmd}; break; }
@@ -252,6 +254,20 @@ jobs:
                       timeout=30, capture_output=False
                   )
           " 2>&1 || echo "Remote cleanup had errors (non-fatal)"
+
+          # Notify dashboard to remove these sites from the topology immediately
+          # (done after remote ray stop so nodes are already disconnecting)
+          OFFSET=${SITE_INDEX_OFFSET:-0}
+          SITE_IDX=$((2 + OFFSET))
+          NUM_WORKERS=$(echo "${WORKERS_JSON}" | python3 -c "import sys,json; print(len(json.loads(sys.stdin.read())))" 2>/dev/null || echo "0")
+          for i in $(seq 0 $((NUM_WORKERS - 1))); do
+            SITE_ID="site-${SITE_IDX}"
+            echo "Removing ${SITE_ID} from dashboard topology..."
+            curl -s -X POST "http://localhost:${DASHBOARD_PORT}/api/remove_site" \
+              -H "Content-Type: application/json" \
+              -d "{\"site_id\": \"${SITE_ID}\"}" 2>&1 || true
+            SITE_IDX=$((SITE_IDX + 1))
+          done
           echo "Add-worker cleanup done."
 
   # =============================================================================

@@ -674,6 +674,45 @@ async def register_worker(request: Request):
     return {"status": "ok"}
 
 
+@app.post("/api/remove_site")
+async def remove_site(request: Request):
+    """Remove a worker site from the topology (e.g. on workflow cancel)."""
+    body = await request.json()
+    site_id = body.get("site_id", "")
+    cluster_name = body.get("cluster_name", "")
+
+    removed_nodes = []
+    # Find and remove nodes belonging to this site (match by site_id or cluster_name)
+    for ip in list(state["nodes"]):
+        node = state["nodes"][ip]
+        if site_id and node.get("site_id") == site_id:
+            removed_nodes.append(ip)
+        elif cluster_name and cluster_name in (node.get("cluster_name") or ""):
+            removed_nodes.append(ip)
+            if not site_id:
+                site_id = node.get("site_id", "")
+
+    for ip in removed_nodes:
+        state["nodes"].pop(ip, None)
+
+    # Clean up site_stats
+    if site_id and site_id in state["site_stats"]:
+        del state["site_stats"][site_id]
+
+    # Clean up pending_sites
+    state["pending_sites"].pop(site_id, None)
+
+    if removed_nodes or site_id:
+        await _broadcast({
+            "type": "worker",
+            "nodes": state["nodes"],
+            "site_stats": _safe_site_stats(),
+            "pending_sites": state["pending_sites"],
+        })
+
+    return {"status": "ok", "removed_nodes": removed_nodes, "site_id": site_id}
+
+
 @app.post("/api/phase")
 async def set_phase(request: Request):
     """Update the current benchmark phase."""
