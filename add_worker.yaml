@@ -16,7 +16,7 @@ jobs:
       - name: Checkout scripts to head node
         uses: parallelworks/checkout
         ssh:
-          remoteHost: ${{ inputs.head.resource.ip }}
+          remoteHost: ${{ inputs.head.resource.ip ?? localhost }}
         with:
           repo: https://github.com/parallelworks/ray-cluster.git
           branch: main
@@ -29,7 +29,7 @@ jobs:
   validate_cluster:
     needs: [checkout]
     ssh:
-      remoteHost: ${{ inputs.head.resource.ip }}
+      remoteHost: ${{ inputs.head.resource.ip ?? localhost }}
     steps:
       - name: Validate existing Ray cluster
         run: |
@@ -145,7 +145,7 @@ jobs:
   dispatch_workers:
     needs: [validate_cluster, checkout]
     ssh:
-      remoteHost: ${{ inputs.head.resource.ip }}
+      remoteHost: ${{ inputs.head.resource.ip ?? localhost }}
     steps:
       - name: Dispatch additional workers
         early-cancel: any-job-failed
