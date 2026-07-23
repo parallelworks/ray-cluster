@@ -21,7 +21,7 @@ jobs:
       - name: Checkout scripts to head node
         uses: parallelworks/checkout
         ssh:
-          remoteHost: ${{ inputs.head.resource.ip }}
+          remoteHost: ${{ inputs.head.resource.ip ?? localhost }}
         with:
           repo: https://github.com/parallelworks/ray-cluster.git
           branch: main
@@ -34,7 +34,7 @@ jobs:
   start_ray_head:
     needs: [checkout]
     ssh:
-      remoteHost: ${{ inputs.head.resource.ip }}
+      remoteHost: ${{ inputs.head.resource.ip ?? localhost }}
     steps:
       - name: Setup and start Ray head + dashboard
         early-cancel: any-job-failed
@@ -166,7 +166,7 @@ jobs:
   wait_for_ray:
     needs: [checkout]
     ssh:
-      remoteHost: ${{ inputs.head.resource.ip }}
+      remoteHost: ${{ inputs.head.resource.ip ?? localhost }}
     steps:
       - name: Wait for Ray head and dashboard
         early-cancel: any-job-failed
@@ -230,7 +230,7 @@ jobs:
   update_session:
     needs: [wait_for_ray]
     ssh:
-      remoteHost: ${{ inputs.head.resource.ip }}
+      remoteHost: ${{ inputs.head.resource.ip ?? localhost }}
     steps:
       - name: Get local port
         run: |
@@ -252,7 +252,7 @@ jobs:
   dispatch_workers:
     needs: [wait_for_ray, checkout]
     ssh:
-      remoteHost: ${{ inputs.head.resource.ip }}
+      remoteHost: ${{ inputs.head.resource.ip ?? localhost }}
     steps:
       - name: Dispatch workers to compute sites
         early-cancel: any-job-failed
@@ -280,7 +280,7 @@ jobs:
     needs: [wait_for_ray]
     if: ${{ inputs.workload_settings.workload_type != 'cluster_only' }}
     ssh:
-      remoteHost: ${{ inputs.head.resource.ip }}
+      remoteHost: ${{ inputs.head.resource.ip ?? localhost }}
     steps:
       - name: Run distributed benchmark
         run: |
@@ -305,7 +305,7 @@ jobs:
     needs: [wait_for_ray]
     if: ${{ inputs.workload_settings.workload_type == 'cluster_only' }}
     ssh:
-      remoteHost: ${{ inputs.head.resource.ip }}
+      remoteHost: ${{ inputs.head.resource.ip ?? localhost }}
     steps:
       - name: Set cluster ready
         early-cancel: any-job-failed
